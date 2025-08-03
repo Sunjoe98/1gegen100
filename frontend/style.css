@@ -6,8 +6,19 @@ button { padding: 10px 20px; margin: 6px; font-size: 16px; cursor: pointer; }
 .badge { display:inline-block; padding:2px 6px; border-radius:4px; background:#eee; margin-left:6px; font-size:12px; }
 .grid { display: grid; gap: 8px; justify-content: center; }
 .grid.auto { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); max-width: 900px; margin: 0 auto; }
-.cell { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:6px; background:#e8e8e8; }
+/* Basiskacheln */
+.cell { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:6px; background:#e8e8e8; transition:background 180ms ease, transform 120ms ease; }
 .cell.alive { background:#4caf50; color:#fff; }
-.cell.dead { background:#b0b0b0; color:#444; }
-.cell.elim { background:#f44336 !important; color:#fff; }
-.footer { margin: 8px 0 18px; color:#444; }
+.cell.dead  { background:#b0b0b0; color:#444; } /* nur falls du "grau" weiter brauchst */
+.cell.elim  { background:#ff5252 !important; color:#fff; box-shadow:0 0 10px rgba(255,82,82,.7); }
+
+/* NEU: dauerhaft ausgeschieden = rot (ohne Puls), klar erkennbar */
+.cell.out   { background:#e53935 !important; color:#fff; box-shadow:none; }
+
+/* Optional: kurzes Pulsieren beim Eliminieren */
+@keyframes pulse-red {
+  0%   { transform: scale(1.00); box-shadow:0 0 0 rgba(229,57,53,0.0); }
+  50%  { transform: scale(1.06); box-shadow:0 0 14px rgba(229,57,53,0.8); }
+  100% { transform: scale(1.00); box-shadow:0 0 0 rgba(229,57,53,0.0); }
+}
+.cell.elim { animation: pulse-red 0.45s ease; }
