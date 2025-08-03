@@ -22,72 +22,79 @@
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
-  <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
-    const socket = io(SOCKET_URL);
+<script>
+  const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+  const socket = io(SOCKET_URL);
 
-    let currentAnswers = [];
-    let locked = false;
+  let cells = new Map();   // number -> div.cell
+  let known = new Set();
 
-    function join() {
-      const name = document.getElementById("name").value || 'Spieler';
-      socket.emit('joinGame', name);
-      document.getElementById("join").style.display = "none";
-      document.getElementById("game").style.display = "block";
+  function ensureCells(players) {
+    const grid = document.getElementById('grid');
+    // Alle (bekannten) Nummern stabil im Grid
+    const nums = players.map(p => p.number).sort((a,b)=>a-b);
+    nums.forEach(n => {
+      if (!known.has(n)) {
+        const d = document.createElement('div');
+        d.className = 'cell alive';
+        d.textContent = n;
+        grid.appendChild(d);
+        cells.set(n, d);
+        known.add(n);
+      }
+    });
+    // Status frisch setzen (kein Effekt auf laufende Anim.)
+    players.forEach(p => {
+      const c = cells.get(p.number);
+      if (!c) return;
+      c.classList.remove('alive','dead','elim','out');
+      c.classList.add(p.alive ? 'alive' : 'out'); // bereits ausgeschiedene: rot
+    });
+  }
+
+  function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+  // EXAKT EINER NACH DEM ANDEREN: kurz "elim" -> dann dauerhaft "out"
+  async function animateEliminationSequential(numbers) {
+    for (const num of numbers) {
+      const c = cells.get(num);
+      if (!c) continue;
+      // Start: egal was war, auf "elim"
+      c.classList.remove('alive','dead','out');
+      c.classList.add('elim');
+      await wait(450);      // Puls-/Leuchteffekt
+      // Dauerhaft rot markieren
+      c.classList.remove('elim','alive','dead');
+      c.classList.add('out');
+      await wait(120);      // kleine Pause bis zum nächsten
     }
+  }
 
-    socket.on('joinRejected', (msg) => {
-      alert(msg);
-      document.getElementById("join").style.display = "block";
-      document.getElementById("game").style.display = "none";
+  // Stats-Anzeige oben
+  socket.on('stats', ({alive,total}) => {
+    document.getElementById('aliveCount').innerText = alive;
+    document.getElementById('totalCount').innerText = total;
+  });
+
+  // Grid aufbauen / Live-Status pflegen (ohne Animation)
+  socket.on('updatePlayers', (players) => {
+    ensureCells(players);
+    players.forEach(p => {
+      const c = cells.get(p.number);
+      if (!c) return;
+      // Wenn gerade animiert wurde, nicht zurück überschreiben.
+      // Nur setzen, wenn kein "elim" läuft:
+      if (!c.classList.contains('elim')) {
+        c.classList.remove('alive','dead','out');
+        c.classList.add(p.alive ? 'alive' : 'out');
+      }
     });
+  });
 
-    socket.on('stats', ({alive,total}) => {
-      document.getElementById('aliveCount').innerText = alive;
-      document.getElementById('totalCount').innerText = total;
-    });
-
-    socket.on('newQuestion', (q) => {
-      locked = false;
-      currentAnswers = q.answers.slice();
-      const qEl = document.getElementById("questionText");
-      const aEl = document.getElementById("answers");
-      const hint = document.getElementById('hint');
-
-      hint.textContent = '';
-      qEl.innerText = q.text;
-      aEl.innerHTML = '';
-
-      currentAnswers.forEach(a => {
-        const btn = document.createElement('button');
-        btn.innerText = a;
-        btn.onclick = () => {
-          if (locked) return;
-          socket.emit('answer', a);
-          // Buttons aktiv lassen, aber aktuell gewählte visuell hervorheben
-          [...aEl.querySelectorAll('button')].forEach(b => { b.style.outline = 'none'; b.style.opacity = 1; });
-          btn.style.outline = '3px solid #333';
-          btn.style.opacity = 1;
-          hint.textContent = 'Antwort aktuell: ' + a + ' (änderbar bis Stopp)';
-        };
-        aEl.appendChild(btn);
-      });
-    });
-
-    socket.on('answerAck', (ans) => {
-      // bestärkende Rückmeldung – Auswahl bleibt änderbar bis questionLocked
-      const hint = document.getElementById('hint');
-      hint.textContent = 'Antwort aktuell: ' + ans + ' (änderbar bis Stopp)';
-    });
-
-    socket.on('questionLocked', ({correct}) => {
-      locked = true; // ab jetzt keine Änderung mehr
-    });
-
-    socket.on('questionEnded', ({correct}) => {
-      const hint = document.getElementById('hint');
-      hint.textContent = 'Richtig war: ' + correct;
-    });
-  </script>
+  // Eliminationsliste vom Backend (in Reihenfolge abspielen)
+  socket.on('eliminationSequence', async ({ eliminatedNumbers }) => {
+    await animateEliminationSequential(eliminatedNumbers);
+  });
+</script>
 </body>
 </html>
