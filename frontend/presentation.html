@@ -3,114 +3,63 @@
 <head>
   <meta charset="utf-8">
   <title>1 gegen 100 – Präsentation</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
     <h1>Die Wand</h1>
+
     <div class="card">
-      <div class="footer">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></div>
-      <div id="grid" class="grid auto" style="margin-top:12px;"></div>
+      <div class="row">
+        <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
+        <span class="badge">Phase: <span id="phaseText">lobby</span></span>
+        <span class="badge">Solo: #<span id="soloNum">–</span></span>
+      </div>
+
+      <!-- Themenwahl -->
+      <div id="topicPanel" style="margin-top:12px;">
+        <h2>Wähle ein Thema</h2>
+        <div id="topicsGrid" class="grid topics"></div>
+        <div class="footer">Einzelspieler wählt, Admin bestätigt.</div>
+      </div>
+
+      <!-- Frage/Timer -->
+      <div id="questionPanel" style="display:none;margin-top:12px;">
+        <div class="footer">Thema: <b><span id="topicName">–</span></b></div>
+        <h2 id="qText">–</h2>
+        <div id="ansList" class="answers"></div>
+        <div class="footer">Mob-Timer</div>
+        <div class="timerBar"><div id="mobFill" class="timerFill"></div></div>
+        <div class="footer">Einzelspieler (#<span id="soloDisp">–</span>) – kein Zeitlimit. <span id="soloLocked" class="badge" style="display:none;">Antwort gespeichert</span></div>
+      </div>
+
+      <!-- Grid -->
+      <div id="gridPanel" style="margin-top:16px;">
+        <div id="grid" class="grid auto"></div>
+      </div>
     </div>
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // anpassen
     const socket = io(SOCKET_URL);
 
-    let cells = new Map();   // number -> div.cell
-    let known = new Set();
-    let revealInProgress = false;
-    let revealingSet = new Set(); // Zahlen, die gerade animiert werden
+    let cells = new Map(); let known = new Set();
+    let revealInProgress = false; let revealingSet = new Set();
+
+    function setPhase(p){ document.getElementById('phaseText').innerText=p; }
+    function show(id,b=true){ document.getElementById(id).style.display=b?'block':'none'; }
 
     function ensureCells(players) {
       const grid = document.getElementById('grid');
-      const nums = players.map(p => p.number).sort((a,b)=>a-b);
-      nums.forEach(n => {
-        if (!known.has(n)) {
-          const d = document.createElement('div');
-          d.className = 'cell alive';
-          d.textContent = n;
-          grid.appendChild(d);
-          cells.set(n, d);
-          known.add(n);
+      const nums = players.map(p=>p.number).sort((a,b)=>a-b);
+      nums.forEach(n=>{
+        if(!known.has(n)){
+          const d=document.createElement('div'); d.className='cell alive'; d.textContent=n;
+          grid.appendChild(d); cells.set(n,d); known.add(n);
         }
       });
-      // Nur Nicht-animierte aktualisieren, um die Show nicht zu verraten
-      players.forEach(p => {
-        const c = cells.get(p.number);
-        if (!c || revealInProgress && revealingSet.has(p.number)) return;
-        c.classList.remove('alive','out','elim');
-        c.classList.add(p.alive ? 'alive' : 'out');
-      });
-    }
-
-    function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
-
-    // Ein Licht nach dem anderen, mit zufälligen kurzen Delays
-    async function animateEliminationShow(numbers) {
-      revealInProgress = true;
-      revealingSet = new Set(numbers); // während der Show: nicht durch Updates überschreiben
-
-      // zufällige Reihenfolge & Dauer pro Slot variieren (leicht)
-      const order = numbers.slice(); // Backend liefert schon zufällig, hier nochmals möglich
-      for (const num of order) {
-        const c = cells.get(num);
-        if (!c) continue;
-
-        // 1) kleine Vorverzögerung (50–300ms)
-        await wait(50 + Math.random()*250);
-
-        // 2) kurzes Flickern (1–3 Zyklen), 120–220ms je Zyklus
-        const flicks = 1 + Math.floor(Math.random()*3);
-        for (let i=0;i<flicks;i++){
-          c.classList.remove('alive','out');
-          c.classList.add('elim');
-          await wait(120 + Math.random()*100);
-          c.classList.remove('elim');
-          c.classList.add('alive');
-          await wait(80 + Math.random()*100);
-        }
-
-        // 3) final: dauerhaft rot
-        c.classList.remove('alive','elim');
-        c.classList.add('out');
-
-        // 4) Pause bis zum nächsten (100–500ms; bei sehr vielen kürzer)
-        await wait(100 + Math.random()*400);
-      }
-
-      // Show zu Ende – ab jetzt dürfen normale Updates alles wieder überschreiben
-      revealInProgress = false;
-      revealingSet.clear();
-    }
-
-    // Stats-Anzeige
-    socket.on('stats', ({alive,total}) => {
-      document.getElementById('aliveCount').innerText = alive;
-      document.getElementById('totalCount').innerText = total;
-    });
-
-    // Grid aufbauen / Status pflegen – aber während Show nicht spoilern
-    socket.on('updatePlayers', (players) => {
-      ensureCells(players);
-      if (!revealInProgress) {
-        players.forEach(p => {
-          const c = cells.get(p.number);
-          if (!c) return;
-          c.classList.remove('alive','out','elim');
-          c.classList.add(p.alive ? 'alive' : 'out');
-        });
-      }
-    });
-
-    // Elimination starten
-    socket.on('eliminationSequence', async ({ eliminatedNumbers }) => {
-      // Präsentation macht die Show – echte Reihenfolge und Tempo sind zufällig
-      await animateEliminationShow(eliminatedNumbers);
-    });
-  </script>
-</body>
-</html>
+      if(!revealInProgress){
+        players.forEach(p=>{
