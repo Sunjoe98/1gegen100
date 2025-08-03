@@ -1,12 +1,10 @@
 [
-  { "id": 1, "text": "Wer erfand das Telefon?", "answers": ["Alexander Graham Bell", "Thomas Edison", "Albert Einstein"], "correct": "Alexander Graham Bell" },
-  { "id": 2, "text": "Wie viele Kontinente gibt es auf der Erde?", "answers": ["5", "6", "7"], "correct": "7" },
-  { "id": 3, "text": "Hauptstadt von Australien?", "answers": ["Sydney", "Melbourne", "Canberra"], "correct": "Canberra" },
-  { "id": 4, "text": "Welches chemische Symbol hat Gold?", "answers": ["Ag", "Au", "Gd"], "correct": "Au" },
-  { "id": 5, "text": "Größter Ozean der Erde?", "answers": ["Atlantik", "Indik", "Pazifik"], "correct": "Pazifik" },
-  { "id": 6, "text": "In welcher Einheit misst man Stromstärke?", "answers": ["Volt", "Watt", "Ampere"], "correct": "Ampere" },
-  { "id": 7, "text": "Längster Fluss der Welt?", "answers": ["Nil", "Amazonas", "Jangtse"], "correct": "Amazonas" },
-  { "id": 8, "text": "Planet am nächsten zur Sonne?", "answers": ["Venus", "Merkur", "Mars"], "correct": "Merkur" },
-  { "id": 9, "text": "Wer malte die Mona Lisa?", "answers": ["Michelangelo", "Leonardo da Vinci", "Raffael"], "correct": "Leonardo da Vinci" },
-  { "id": 10, "text": "Welches Tier ist kein Säugetier?", "answers": ["Delfin", "Fledermaus", "Pinguin"], "correct": "Pinguin" }
+  { "id": 1, "topic": "Musik", "text": "Wer war Mitglied der Beatles?", "answers": ["Mick Jagger","Paul McCartney","Freddie Mercury"], "correct": "Paul McCartney" },
+  { "id": 2, "topic": "Musik", "text": "Welche Notenlänge ist die längste?", "answers": ["Ganze","Halbe","Viertel"], "correct": "Ganze" },
+
+  { "id": 11, "topic": "Film & TV", "text": "Wer schuf 'Star Wars'?", "answers": ["George Lucas","James Cameron","Steven Spielberg"], "correct": "George Lucas" },
+  { "id": 12, "topic": "Film & TV", "text": "Was ist ein Cliffhanger?", "answers": ["Kameralinse","Spannungsende","Stunt"], "correct": "Spannungsende" },
+
+  { "id": 21, "topic": "Sport", "text": "Wie viele Spieler pro Team im Fußball?", "answers": ["9","11","13"], "correct": "11" },
+  { "id": 22, "topic": "Sport", "text": "Was misst ein Marathon?", "answers": ["21,0975 km","42,195 km","50 km"], "correct": "42,195 km" }
 ]
