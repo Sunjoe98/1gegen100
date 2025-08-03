@@ -9,6 +9,7 @@
 <body>
   <div class="container">
     <h1>1 gegen 100</h1>
+
     <div id="joinCard" class="card">
       <div class="row">
         <input id="name" class="input" placeholder="Dein Name">
@@ -38,11 +39,10 @@
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // anpassen
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
     const socket = io(SOCKET_URL);
 
     let locked = false;
-
     function setPhase(p){ document.getElementById('phaseText').innerText = p; }
 
     document.getElementById('joinBtn').onclick = () => {
@@ -101,7 +101,6 @@
       document.getElementById('joinCard').style.display='block';
       document.getElementById('gameCard').style.display='none';
     });
-
     socket.on('joinRejected', (msg)=>{ alert(msg); document.getElementById('joinCard').style.display='block'; document.getElementById('gameCard').style.display='none'; });
   </script>
 </body>
