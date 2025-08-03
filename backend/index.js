@@ -231,13 +231,14 @@ io.on('connection', (socket) => {
     emitPlayers();
   });
 
-  // Admin: Solo-Antwort manuell speichern (kein Zeitlimit)
-  socket.on('setSoloAnswer', (answer) => {
-    if (!currentQuestion) return;
-    if (!currentQuestion.answers.includes(answer)) return;
-    soloAnswer = answer;
-    io.emit('soloAnswerSet', { answer });
-  });
+// Admin: Solo-Antwort manuell speichern (kein Zeitlimit, bis Auflösung änderbar)
+socket.on('setSoloAnswer', ({ index, answer }) => {
+  if (!currentQuestion) return;
+  if (index == null || !currentQuestion.answers[index]) return;
+  if (currentQuestion.answers[index] !== answer) return; // Konsistenz
+  soloAnswer = answer;
+  io.emit('soloAnswerSet', { index, answer }); // Präsentation markiert "eingeloggt"
+});
 
   // Admin: Auflösen -> Bewertung + Eliminationsliste
   socket.on('revealAndEliminate', () => {
