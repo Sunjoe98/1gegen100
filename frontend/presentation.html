@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>1 gegen 100 – Präsentation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Die Wand</h1>
+  <div class="footer">Noch im Spiel: <span id="aliveCount">0</span> / <span id="totalCount">0</span></div>
+  <div id="grid" class="grid auto"></div>
+
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script>
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const socket = io(SOCKET_URL);
+
+    let cells = new Map(); // number -> div.cell
+    let knownNumbers = new Set();
+
+    function ensureCells(players) {
+      // Baue ein Grid aller bekannten Nummern (stabil)
+      const container = document.getElementById('grid');
+      const numbers = players.map(p => p.number).sort((a,b)=>a-b);
+      numbers.forEach(num => {
+        if (!knownNumbers.has(num)) {
+          const d = document.createElement('div');
+          d.className = 'cell alive';
+          d.textContent = num;
+          container.appendChild(d);
+          cells.set(num, d);
+          knownNumbers.add(num);
+        }
+      });
+      // Status setzen
+      players.forEach(p => {
+        const c = cells.get(p.number);
+        if (!c) return;
+        c.classList.remove('alive','dead','elim');
+        c.classList.add(p.alive ? 'alive' : 'dead');
+      });
+    }
+
+    function animateElimination(sequence) {
+      // sequence: Array von Nummern, unregelmäßig & zügig bei vielen
+      if (!sequence || !sequence.length) return;
+      const n = sequence.length;
+      let i = 0;
+
+      const step = () => {
+        if (i >= n) return;
+        const num = sequence[i++];
+        const cell = cells.get(num);
+        if (cell) {
+          cell.classList.remove('alive');
+          cell.classList.add('elim');
+          setTimeout(() => {
+            cell.classList.remove('elim');
+            cell.classList.add('dead');
+          }, 250);
+        }
+        // Timing: bei vielen schneller
+        const remaining = n - i;
+        const base = n > 50 ? 40 : n > 20 ? 90 : 140;
+        const jitter = Math.random() * (n > 50 ? 30 : 100);
+        setTimeout(step, Math.max(20, base - Math.min(remaining, 50)) + jitter);
+      };
+      step();
+    }
+
+    socket.on('stats', ({alive,total}) => {
+      document.getElementById('aliveCount').innerText = alive;
+      document.getElementById('totalCount').innerText = total;
+    });
+
+    socket.on('updatePlayers', (players) => {
+      ensureCells(players);
+      // Alive/Dead Status aktualisieren (ohne Animation)
+      players.forEach(p => {
+        const c = cells.get(p.number);
+        if (!c) return;
+        if (p.alive) {
+          c.classList.remove('dead','elim');
+          c.classList.add('alive');
+        } else {
+          c.classList.remove('alive','elim');
+          c.classList.add('dead');
+        }
+      });
+    });
+
+    socket.on('eliminationSequence', ({ eliminatedNumbers }) => {
+      // animierte Elimination
+      animateElimination(eliminatedNumbers);
+    });
+  </script>
+</body>
+</html>
