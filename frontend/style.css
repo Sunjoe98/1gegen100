@@ -2,6 +2,12 @@ body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0
 h1, h2 { color: #222; margin: 12px 0; }
 button { padding: 10px 20px; margin: 6px; font-size: 16px; cursor: pointer; }
 #questionText { font-size: 1.6em; margin: 18px 0; }
-.player-list { text-align: left; max-width: 480px; margin: 16px auto; line-height: 1.6; }
+.player-list { text-align: left; max-width: 560px; margin: 16px auto; line-height: 1.6; }
 .badge { display:inline-block; padding:2px 6px; border-radius:4px; background:#eee; margin-left:6px; font-size:12px; }
-.grid { display: grid; gap: 12px; justify-content: center; }
+.grid { display: grid; gap: 8px; justify-content: center; }
+.grid.auto { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); max-width: 900px; margin: 0 auto; }
+.cell { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:6px; background:#e8e8e8; }
+.cell.alive { background:#4caf50; color:#fff; }
+.cell.dead { background:#b0b0b0; color:#444; }
+.cell.elim { background:#f44336 !important; color:#fff; }
+.footer { margin: 8px 0 18px; color:#444; }
