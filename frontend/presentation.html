@@ -63,3 +63,113 @@
       });
       if(!revealInProgress){
         players.forEach(p=>{
+          const c=cells.get(p.number); if(!c) return;
+          c.classList.remove('alive','out','elim'); c.classList.add(p.alive?'alive':'out');
+        });
+      }
+    }
+
+    function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
+    async function animateEliminationShow(numbers) {
+      revealInProgress = true; revealingSet = new Set(numbers);
+      for (const num of numbers) {
+        const c = cells.get(num); if(!c) continue;
+        await wait(50 + Math.random()*250);
+        const flicks = 1 + Math.floor(Math.random()*3);
+        for (let i=0;i<flicks;i++){
+          c.classList.remove('alive','out'); c.classList.add('elim');
+          await wait(120 + Math.random()*100);
+          c.classList.remove('elim'); c.classList.add('alive');
+          await wait(80 + Math.random()*100);
+        }
+        c.classList.remove('alive','elim'); c.classList.add('out');
+        await wait(100 + Math.random()*400);
+      }
+      revealInProgress = false; revealingSet.clear();
+    }
+
+    // Themenwahl Interaktion (Solo klickt; Admin bestätigt serverseitig)
+    let offered = [];
+    socket.on('topicOffered', ({options})=>{
+      offered = options.slice();
+      setPhase('topicOffer'); show('topicPanel',true); show('questionPanel',false);
+      const grid = document.getElementById('topicsGrid'); grid.innerHTML='';
+      options.forEach(t=>{
+        const div=document.createElement('div'); div.className='topic'; div.textContent=t;
+        div.onclick = ()=>{
+          [...grid.children].forEach(ch=>ch.classList.remove('selected'));
+          div.classList.add('selected');
+          socket.emit('chooseTopic', t);
+        };
+        grid.appendChild(div);
+      });
+    });
+    socket.on('topicChosen', ({chosenTopic})=>{
+      // Markierung setzen
+      [...document.getElementById('topicsGrid').children].forEach(ch=>{
+        if(ch.textContent===chosenTopic) ch.classList.add('selected'); else ch.classList.remove('selected');
+      });
+    });
+
+    // Frage
+    socket.on('displayQuestion', (q)=>{
+      document.getElementById('topicName').innerText=q.topic;
+      document.getElementById('qText').innerText=q.text;
+      const ans = document.getElementById('ansList'); ans.innerHTML='';
+      q.answers.forEach((a,i)=>{
+        const b=document.createElement('button'); b.className='btn choice'; b.innerText=a; b.disabled=true;
+        ans.appendChild(b);
+      });
+      // UI umschalten
+      setPhase('question'); show('topicPanel',false); show('questionPanel',true);
+      // Mob timer bar animieren (Client-seitig, 10s)
+      const fill=document.getElementById('mobFill'); fill.style.width='0%';
+    });
+
+    socket.on('mobTimerStart', ({seconds})=>{
+      const fill=document.getElementById('mobFill'); const start=Date.now(), dur=seconds*1000;
+      const h=setInterval(()=>{
+        const p=Math.min(1,(Date.now()-start)/dur); fill.style.width=(p*100)+'%';
+        if(p>=1) clearInterval(h);
+      }, 50);
+    });
+
+    socket.on('soloAnswerSet', ({answer})=>{
+      const badge=document.getElementById('soloLocked'); badge.style.display='inline-flex';
+    });
+
+    socket.on('questionLocked', ({correct})=>{
+      // nichts extra; Lock ist bereits serverseitig
+    });
+
+    // Show
+    socket.on('eliminationSequence', async ({ eliminatedNumbers })=>{
+      await animateEliminationShow(eliminatedNumbers);
+    });
+
+    // Nach Show zurück zur Frage mit Ergebnis
+    socket.on('questionEnded', ({correct, soloAnswer})=>{
+      setPhase('reveal'); show('questionPanel',true);
+      const info = document.createElement('div');
+      const right = (soloAnswer===correct);
+      info.className='badge'; info.style.marginTop='8px';
+      info.textContent = right ? 'Einzelspieler: RICHTIG' : 'Einzelspieler: FALSCH';
+      document.getElementById('questionPanel').appendChild(info);
+    });
+
+    // Allgemeines
+    socket.on('stats', ({alive,total,gamePhase,soloNumber})=>{
+      document.getElementById('aliveCount').innerText=alive;
+      document.getElementById('totalCount').innerText=total;
+      setPhase(gamePhase); document.getElementById('soloNum').innerText = soloNumber ?? '–';
+      document.getElementById('soloDisp').innerText = soloNumber ?? '–';
+    });
+
+    socket.on('updatePlayers', (players)=>{ ensureCells(players); });
+    socket.on('phaseChanged', ({gamePhase})=>{
+      setPhase(gamePhase);
+      if(gamePhase==='topicOffer'){ show('topicPanel',true); show('questionPanel',false); }
+    });
+  </script>
+</body>
+</html>
