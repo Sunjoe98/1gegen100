@@ -1,46 +1,91 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-  <title>1 gegen 100 - Spieler</title>
+  <meta charset="utf-8">
+  <title>1 gegen 100 – Spieler</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <h1>1 gegen 100</h1>
+
   <div id="join">
     <input id="name" placeholder="Dein Name">
     <button onclick="join()">Beitreten</button>
   </div>
+
   <div id="game" style="display:none;">
-    <h2 id="questionText"></h2>
+    <h2 id="questionText">Warten auf nächste Frage…</h2>
     <div id="answers"></div>
+    <div id="hint" class="badge"></div>
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
     const socket = io('https://onegegen100-u6h7.onrender.com');
-    let playerName = "";
+
+    let locked = false;
 
     function join() {
-      playerName = document.getElementById("name").value;
-      socket.emit('joinGame', playerName);
+      const name = document.getElementById("name").value || 'Spieler';
+      socket.emit('joinGame', name);
       document.getElementById("join").style.display = "none";
       document.getElementById("game").style.display = "block";
     }
 
-    socket.on('newQuestion', (q) => {
-      document.getElementById("questionText").innerText = q.text;
-      let ansHTML = "";
-      q.answers.forEach(a => {
-        ansHTML += `<button onclick="answer('${a}')">${a}</button><br>`;
-      });
-      document.getElementById("answers").innerHTML = ansHTML;
+    socket.on('joinRejected', (msg) => {
+      alert(msg);
+      // zurück zur Join-Ansicht
+      document.getElementById("join").style.display = "block";
+      document.getElementById("game").style.display = "none";
     });
 
-    function answer(ans) {
-      socket.emit('answer', ans);
-    }
+    socket.on('registrationClosed', () => {
+      const hint = document.getElementById('hint');
+      hint.textContent = 'Registrierung geschlossen – Spiel läuft';
+    });
+
+    socket.on('registrationOpened', () => {
+      const hint = document.getElementById('hint');
+      hint.textContent = 'Registrierung offen';
+    });
+
+    socket.on('newQuestion', (q) => {
+      locked = false;
+      const qEl = document.getElementById("questionText");
+      const aEl = document.getElementById("answers");
+      const hint = document.getElementById('hint');
+
+      hint.textContent = '';
+      qEl.innerText = q.text;
+      aEl.innerHTML = '';
+
+      q.answers.forEach(a => {
+        const btn = document.createElement('button');
+        btn.innerText = a;
+        btn.onclick = () => {
+          if (locked) return;
+          locked = true;
+          socket.emit('answer', a);
+          // visual lock + mark
+          [...aEl.querySelectorAll('button')].forEach(b => { b.disabled = true; b.style.opacity = 0.6; });
+          btn.disabled = false;
+          btn.style.opacity = 1;
+          btn.style.outline = '3px solid #333';
+          hint.textContent = 'Antwort gespeichert: ' + a;
+        };
+        aEl.appendChild(btn);
+      });
+    });
+
+    socket.on('answerAck', (ans) => {
+      // optional zusätzlicher Hinweis; bereits markiert
+    });
+
+    socket.on('questionEnded', ({ correct }) => {
+      const hint = document.getElementById('hint');
+      hint.textContent = 'Richtig war: ' + correct;
+    });
   </script>
 </body>
 </html>
