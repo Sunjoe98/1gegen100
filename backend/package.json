@@ -1,6 +1,6 @@
 {
   "name": "1gegen100-backend",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Realtime-Backend für 1 gegen 100 (Socket.IO + Express)",
   "main": "index.js",
   "scripts": {
