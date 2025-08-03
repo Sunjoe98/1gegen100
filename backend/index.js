@@ -240,32 +240,47 @@ socket.on('setSoloAnswer', ({ index, answer }) => {
   io.emit('soloAnswerSet', { index, answer }); // Präsentation markiert "eingeloggt"
 });
 
-  // Admin: Auflösen -> Bewertung + Eliminationsliste
-  socket.on('revealAndEliminate', () => {
-    if (!currentQuestion) return;
-    const correct = currentQuestion.correct;
+  // Admin: Auflösen -> nur Eliminationsliste & Show (ohne richtige Antwort zu verraten)
+socket.on('revealAndEliminate', () => {
+  if (!currentQuestion) return;
+  const correct = currentQuestion.correct;
 
-    // Frage sperren
-    io.emit('questionLocked', { correct });
-
-    // Ermitteln, wer raus ist (Mob + ggf. Solo)
-    const eliminated = [];
-    players.forEach(p => {
-      if (!p.alive) return;
-      // Solo wird separat bewertet: wenn soloAnswer gesetzt und falsch -> raus
-      if (p.number === soloNumber) {
-        if (soloAnswer && soloAnswer !== correct) {
-          p.alive = false;
-          eliminated.push({ number: p.number, sid: p.sid });
-        }
-        return;
-      }
-      // Mob: wenn keine oder falsche Antwort -> raus
-      if (p.lastAnswer === null || p.lastAnswer !== correct) {
+  // Mob-Fenster ist ohnehin nach 10s zu; hier keine Lösung zeigen
+  // Bestimme Eliminierte
+  const eliminated = [];
+  players.forEach(p => {
+    if (!p.alive) return;
+    if (p.number === soloNumber) {
+      if (soloAnswer && soloAnswer !== correct) {
         p.alive = false;
         eliminated.push({ number: p.number, sid: p.sid });
       }
-    });
+      return;
+    }
+    if (p.lastAnswer === null || p.lastAnswer !== correct) {
+      p.alive = false;
+      eliminated.push({ number: p.number, sid: p.sid });
+    }
+  });
+
+  eliminated.forEach(({sid}) => {
+    io.sockets.sockets.get(sid)?.leave('alive');
+    io.to(sid).emit('youAreOut');
+  });
+
+  gamePhase = 'show';
+  const order = eliminated.map(e => e.number).sort(()=>Math.random()-0.5);
+  io.emit('eliminationSequence', { eliminatedNumbers: order }); // <— kein correct hier
+  io.emit('phaseChanged', { gamePhase });
+  emitPlayers(); broadcastStats();
+});
+
+  // Admin: richtige Antwort zeigen (grün/rot einfärben)
+  socket.on('revealCorrect', () => {
+  if (!currentQuestion) return;
+  io.emit('revealCorrect', { correct: currentQuestion.correct, soloAnswer });
+  });
+
 
     // aus Room 'alive' entfernen & individuelle Nachricht
     eliminated.forEach(({sid}) => {
