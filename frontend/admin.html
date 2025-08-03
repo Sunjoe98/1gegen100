@@ -7,24 +7,30 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Admin</h1>
+  <div class="container">
+    <h1>Admin</h1>
 
-  <div id="regStatus" class="badge">Registrierung: OFFEN</div>
-  <div class="footer">Noch im Spiel: <span id="aliveCount">0</span> / <span id="totalCount">0</span></div>
+    <div class="card">
+      <div class="row">
+        <span id="regStatus" class="badge">Registrierung: OFFEN</span>
+        <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="startBtn" class="btn">Registrierung schließen (Start)</button>
+        <button id="openBtn"  class="btn secondary">Registrierung öffnen</button>
+      </div>
+      <div class="row">
+        <button id="nextBtn" class="btn">Nächste Frage</button>
+        <button id="endBtn"  class="btn secondary">Frage beenden</button>
+      </div>
+    </div>
 
-  <div>
-    <button id="startBtn">Registrierung schließen (Spiel starten)</button>
-    <button id="openBtn">Registrierung öffnen</button>
+    <div class="card" style="margin-top:12px;">
+      <h2>Aktuelle Frage</h2>
+      <div id="qText" class="footer">–</div>
+      <div id="players" class="player-list"></div>
+    </div>
   </div>
-  <div>
-    <button id="nextBtn">Nächste Frage</button>
-    <button id="endBtn">Frage beenden</button>
-  </div>
-
-  <h2 id="qTitle">Aktuelle Frage</h2>
-  <div id="qText">–</div>
-
-  <div id="players" class="player-list"></div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
@@ -49,7 +55,6 @@
     });
 
     socket.on('updatePlayers', (players) => {
-      // players: {number, alive, lastAnswer}
       document.getElementById('players').innerHTML = players
         .map(p => `${p.alive ? '🟢' : '🔴'} #${p.number}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
         .join('<br>');
