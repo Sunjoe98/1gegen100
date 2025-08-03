@@ -1,0 +1,5 @@
+[
+  { "text": "Wer erfand das Telefon?", "answers": ["Graham Bell", "Einstein", "Edison"], "correct": "Graham Bell" },
+  { "text": "Wie viele Kontinente gibt es?", "answers": ["5", "6", "7"], "correct": "7" },
+  { "text": "Was ist die Hauptstadt von Australien?", "answers": ["Sydney", "Melbourne", "Canberra"], "correct": "Canberra" }
+]
