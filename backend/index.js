@@ -1,11 +1,5 @@
 // 1 gegen 100 – Backend (Express + Socket.IO)
-// Themenmodus + Solo-Spieler (kein Zeitlimit):
-// - 15 Topics, Fragen haben { topic, ... }; asked.json verhindert Wiederholung
-// - Admin setzt Solo-Spieler einmalig (fix)
-// - Zwei zufällige Themen werden angeboten; Solo wählt; Admin bestätigt
-// - Frage aus gewähltem Thema; Mob (alle außer Solo) 10s Antwortfenster
-// - Solo ohne Zeitlimit; Admin speichert Solo-Antwort; dann Auflösung + Show
-// - Danach zurück zur Frageansicht mit richtig/falsch
+// Themenmodus + Solo-Spieler (kein Zeitlimit) + 2-stufige Auflösung
 
 const express = require('express');
 const http = require('http');
@@ -23,7 +17,7 @@ const ASKED_FILE     = path.join(__dirname, 'asked.json');
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname))); // /questions.json, /asked.json
 
 const TOPICS = [
   "Musik","Film & TV","Sport","Geschichte","Geografie",
@@ -37,7 +31,7 @@ let nextPlayerNumber = 1;
 let registrationOpen = true;
 
 let soloNumber = null;         // fix definierter Einzelspieler (Spielernummer)
-let gamePhase = "lobby";       // lobby | topicOffer | question | reveal | show
+let gamePhase = "lobby";       // lobby | topicOffer | question | show | reveal
 let currentQuestion = null;
 let questions = [];            // {id, topic, text, answers[3], correct}
 let askedIds = new Set();
@@ -102,7 +96,6 @@ function publicPlayers() {
   return players.map(p => ({ number: p.number, alive: p.alive, lastAnswer: p.lastAnswer }));
 }
 function emitPlayers() { io.emit('updatePlayers', publicPlayers()); }
-function getSoloPlayer() { return players.find(p=>p.number===soloNumber); }
 
 // ---- HTTP
 app.get('/', (_,res)=>res.send('1 gegen 100 Backend läuft (Themenmodus).'));
@@ -131,11 +124,10 @@ io.on('connection', (socket) => {
     socket.join('alive');
     socket.emit('youAre', { number: player.number });
 
-    emitPlayers();
-    broadcastStats();
+    emitPlayers(); broadcastStats();
   });
 
-  // Admin: Solo-Spieler fix setzen (nur einmal sinnvoll)
+  // Admin: Solo-Spieler fix setzen (einmalig sinnvoll)
   socket.on('setSoloPlayer', (number) => {
     const n = Number(number);
     if (!players.find(p=>p.number===n)) { socket.emit('adminError','Spielernummer existiert nicht.'); return; }
@@ -148,10 +140,7 @@ io.on('connection', (socket) => {
   socket.on('startGame', () => {
     registrationOpen = false;
     gamePhase = 'topicOffer';
-    offeredTopics = [];
-    chosenTopic = null;
-    currentQuestion = null;
-    soloAnswer = null;
+    offeredTopics = []; chosenTopic = null; currentQuestion = null; soloAnswer = null;
     io.emit('registrationClosed');
     io.emit('phaseChanged', { gamePhase });
     broadcastStats();
@@ -159,11 +148,7 @@ io.on('connection', (socket) => {
   socket.on('openRegistration', () => {
     registrationOpen = true;
     gamePhase = 'lobby';
-    offeredTopics = [];
-    chosenTopic = null;
-    currentQuestion = null;
-    soloAnswer = null;
-    // Reset Spieler (optional beibehalten – hier behalten wir)
+    offeredTopics = []; chosenTopic = null; currentQuestion = null; soloAnswer = null;
     io.emit('registrationOpened');
     io.emit('phaseChanged', { gamePhase });
     broadcastStats();
@@ -172,7 +157,6 @@ io.on('connection', (socket) => {
   // Admin: zwei zufällige Themen anbieten
   socket.on('offerTopics', () => {
     if (gamePhase!=='topicOffer') gamePhase='topicOffer';
-    // 2 zufällige, unterschiedliche
     const shuffled = TOPICS.slice().sort(()=>Math.random()-0.5);
     offeredTopics = shuffled.slice(0,2);
     chosenTopic = null;
@@ -203,8 +187,9 @@ io.on('connection', (socket) => {
     players.forEach(p => { if (p.alive) p.lastAnswer = null; });
 
     emitPlayers();
-    io.emit('displayQuestion', { id: q.id, topic: q.topic, text: q.text, answers: q.answers });
-    io.to('alive').emit('newQuestion', { id: q.id, topic: q.topic, text: q.text, answers: q.answers });
+    const payload = { id: q.id, topic: q.topic, text: q.text, answers: q.answers };
+    io.emit('displayQuestion', payload);
+    io.to('alive').emit('newQuestion', payload);
 
     // Mob-10s Fenster öffnen
     mobAnsweringOpen = true;
@@ -231,70 +216,52 @@ io.on('connection', (socket) => {
     emitPlayers();
   });
 
-// Admin: Solo-Antwort manuell speichern (kein Zeitlimit, bis Auflösung änderbar)
-socket.on('setSoloAnswer', ({ index, answer }) => {
-  if (!currentQuestion) return;
-  if (index == null || !currentQuestion.answers[index]) return;
-  if (currentQuestion.answers[index] !== answer) return; // Konsistenz
-  soloAnswer = answer;
-  io.emit('soloAnswerSet', { index, answer }); // Präsentation markiert "eingeloggt"
-});
+  // Admin: Solo-Antwort manuell speichern (kein Zeitlimit, bis Auflösung änderbar)
+  socket.on('setSoloAnswer', ({ index, answer }) => {
+    if (!currentQuestion) return;
+    if (index == null || !currentQuestion.answers[index]) return;
+    if (currentQuestion.answers[index] !== answer) return; // Konsistenz
+    soloAnswer = answer;
+    io.emit('soloAnswerSet', { index, answer }); // Präsentation: eingeloggt markieren
+  });
 
   // Admin: Auflösen -> nur Eliminationsliste & Show (ohne richtige Antwort zu verraten)
-socket.on('revealAndEliminate', () => {
-  if (!currentQuestion) return;
-  const correct = currentQuestion.correct;
+  socket.on('revealAndEliminate', () => {
+    if (!currentQuestion) return;
+    const correct = currentQuestion.correct;
 
-  // Mob-Fenster ist ohnehin nach 10s zu; hier keine Lösung zeigen
-  // Bestimme Eliminierte
-  const eliminated = [];
-  players.forEach(p => {
-    if (!p.alive) return;
-    if (p.number === soloNumber) {
-      if (soloAnswer && soloAnswer !== correct) {
+    const eliminated = [];
+    players.forEach(p => {
+      if (!p.alive) return;
+      if (p.number === soloNumber) {
+        if (soloAnswer && soloAnswer !== correct) {
+          p.alive = false;
+          eliminated.push({ number: p.number, sid: p.sid });
+        }
+        return;
+      }
+      if (p.lastAnswer === null || p.lastAnswer !== correct) {
         p.alive = false;
         eliminated.push({ number: p.number, sid: p.sid });
       }
-      return;
-    }
-    if (p.lastAnswer === null || p.lastAnswer !== correct) {
-      p.alive = false;
-      eliminated.push({ number: p.number, sid: p.sid });
-    }
-  });
+    });
 
-  eliminated.forEach(({sid}) => {
-    io.sockets.sockets.get(sid)?.leave('alive');
-    io.to(sid).emit('youAreOut');
-  });
-
-  gamePhase = 'show';
-  const order = eliminated.map(e => e.number).sort(()=>Math.random()-0.5);
-  io.emit('eliminationSequence', { eliminatedNumbers: order }); // <— kein correct hier
-  io.emit('phaseChanged', { gamePhase });
-  emitPlayers(); broadcastStats();
-});
-
-  // Admin: richtige Antwort zeigen (grün/rot einfärben)
-  socket.on('revealCorrect', () => {
-  if (!currentQuestion) return;
-  io.emit('revealCorrect', { correct: currentQuestion.correct, soloAnswer });
-  });
-
-
-    // aus Room 'alive' entfernen & individuelle Nachricht
     eliminated.forEach(({sid}) => {
       io.sockets.sockets.get(sid)?.leave('alive');
       io.to(sid).emit('youAreOut');
     });
 
-    // Show
     gamePhase = 'show';
     const order = eliminated.map(e => e.number).sort(()=>Math.random()-0.5);
-    io.emit('eliminationSequence', { eliminatedNumbers: order, correct });
+    io.emit('eliminationSequence', { eliminatedNumbers: order }); // korrekt bleibt geheim
     io.emit('phaseChanged', { gamePhase });
-    emitPlayers();
-    broadcastStats();
+    emitPlayers(); broadcastStats();
+  });
+
+  // Admin: richtige Antwort erst jetzt zeigen (grün/rot einfärben)
+  socket.on('revealCorrect', () => {
+    if (!currentQuestion) return;
+    io.emit('revealCorrect', { correct: currentQuestion.correct, soloAnswer });
   });
 
   // Admin: Zurück zur Frageansicht mit Ergebnisbanner
@@ -308,10 +275,7 @@ socket.on('revealAndEliminate', () => {
 
   // Admin: Nächste Themenrunde (zurück zur Auswahl)
   socket.on('nextRound', () => {
-    currentQuestion = null;
-    chosenTopic = null;
-    offeredTopics = [];
-    soloAnswer = null;
+    currentQuestion = null; chosenTopic = null; offeredTopics = []; soloAnswer = null;
     gamePhase = 'topicOffer';
     io.emit('phaseChanged', { gamePhase });
     broadcastStats();
@@ -321,10 +285,7 @@ socket.on('revealAndEliminate', () => {
   socket.on('disconnect', () => {
     const before = players.length;
     players = players.filter(p=>p.sid!==sid);
-    if (players.length !== before) {
-      emitPlayers();
-      broadcastStats();
-    }
+    if (players.length !== before) { emitPlayers(); broadcastStats(); }
   });
 });
 
