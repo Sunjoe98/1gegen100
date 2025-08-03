@@ -1,11 +1,11 @@
 // 1 gegen 100 – Backend (Express + Socket.IO)
-// Neu:
-// - Antworten bis Fragenende änderbar (kein Lock beim ersten Klick)
+// Features:
+// - Antworten änderbar bis Fragenende (kein Lock beim 1. Klick)
 // - Eliminierte erhalten keine neuen Fragen (Room 'alive')
-// - Live-Stats (alive/total) für alle
-// - Präsentationsseite mit Elimination-Animation (per 'eliminationSequence')
-// - Zufällige Fragen, nie doppelt (asked.json), persistent
-// - Spieler haben anonyme Nummern (playerNumber)
+// - Live-Stats (alive/total) für alle Clients
+// - Präsentationsseite: sequentielle Elimination (rot-puls -> permanent rot)
+// - Zufällige Fragen, nie doppelt (asked.json persistent)
+// - Spieler bekommen anonyme Nummer (player.number) und sehen ihre eigene
 
 const express = require('express');
 const http = require('http');
@@ -19,14 +19,16 @@ const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: "*", methods: ["GET","POST"] } });
 
 const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
-const ASKED_FILE = path.join(__dirname, 'asked.json');
+const ASKED_FILE     = path.join(__dirname, 'asked.json');
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname))); // /questions.json, /asked.json
+
+// Statische Auslieferung (u. a. /questions.json und /asked.json)
+app.use(express.static(path.join(__dirname)));
 
 // ---- State
-let players = []; // {id,sid,name,number,alive,true,lastAnswer:null}
+let players = []; // {sid,name,number,alive,lastAnswer}
 let nextPlayerNumber = 1;
 let registrationOpen = true;
 let gameActive = false;
@@ -41,13 +43,16 @@ function loadQuestions() {
     questions = [];
     return;
   }
-  const raw = JSON.parse(fs.readFileSync(QUESTIONS_FILE,'utf8'));
+  const raw = JSON.parse(fs.readFileSync(QUESTIONS_FILE, 'utf8'));
   questions = raw.map((q, idx) => ({
     id: q.id ?? idx,
     text: q.text,
     answers: q.answers,
     correct: q.correct
-  })).filter(q => q && q.text && Array.isArray(q.answers) && q.answers.length===3 && q.answers.includes(q.correct));
+  })).filter(q =>
+    q && q.text && Array.isArray(q.answers) &&
+    q.answers.length === 3 && q.answers.includes(q.correct)
+  );
   console.log('Fragen geladen:', questions.length);
 }
 function loadAsked() {
@@ -71,15 +76,18 @@ function pickNextQuestion() {
   askedIds.add(q.id); persistAsked();
   return q;
 }
-
 function stats() {
   const alive = players.filter(p=>p.alive).length;
   return { alive, total: players.length, gameActive, registrationOpen };
 }
 function broadcastStats() { io.emit('stats', stats()); }
-function emitPlayers() { io.emit('updatePlayers', players.map(p => ({ number: p.number, alive: p.alive, lastAnswer: p.lastAnswer }))); }
+function publicPlayers() {
+  // nur anonyme Infos für Frontend/Präsentation
+  return players.map(p => ({ number: p.number, alive: p.alive, lastAnswer: p.lastAnswer }));
+}
+function emitPlayers() { io.emit('updatePlayers', publicPlayers()); }
 
-// ---- HTTP
+// ---- Health
 app.get('/', (_,res)=>res.send('1 gegen 100 Backend läuft.'));
 
 // ---- Sockets
@@ -94,19 +102,21 @@ io.on('connection', (socket) => {
       return;
     }
     const exists = players.find(p=>p.sid===sid);
-    if (exists) return;
-
+    if (exists) {
+      socket.emit('youAre', { number: exists.number });
+      return;
+    }
     const player = {
-      id: sid, sid,
-      name: String(name||'Spieler'),
+      sid,
+      name: String(name || 'Spieler'),
       number: nextPlayerNumber++,
       alive: true,
       lastAnswer: null
     };
     players.push(player);
 
-    // Rooms: Alive-Gruppe
-    socket.join('alive');
+    socket.join('alive');                 // nur Lebende erhalten neue Fragen
+    socket.emit('youAre', { number: player.number }); // eigene Nummer anzeigen
 
     emitPlayers();
     broadcastStats();
@@ -119,44 +129,41 @@ io.on('connection', (socket) => {
     broadcastStats();
   });
 
-  // Admin: Registrierung öffnen (neue Runde/Lobby)
+  // Admin: Registrierung öffnen (neue Lobby)
   socket.on('openRegistration', () => {
     registrationOpen = true;
     io.emit('registrationOpened');
     broadcastStats();
   });
 
-  // Admin: nächste Frage (zufällig & nie doppelt)
+  // Admin: nächste Frage (zufällig, nie doppelt)
   socket.on('nextQuestion', () => {
     const q = pickNextQuestion();
     if (!q) { io.emit('noQuestionsLeft'); return; }
     currentQuestion = q;
     gameActive = true;
 
-    // Reset Antworten nur für lebende Spieler
+    // Antworten nur für Lebende zurücksetzen
     players.forEach(p => { if (p.alive) p.lastAnswer = null; });
 
     emitPlayers();
     broadcastStats();
 
-    // Frage nur an lebende Spieler senden
     const payload = { id: q.id, text: q.text, answers: q.answers };
-    io.to('alive').emit('newQuestion', payload);
-    // Display & Admin dürfen Frage „sehen“ (für Anzeige)
-    io.emit('displayQuestion', payload);
+    io.to('alive').emit('newQuestion', payload); // nur Lebende sehen Frage
+    io.emit('displayQuestion', payload);         // für Admin/Display
   });
 
-  // Spieler: Antwort (mehrfach änderbar bis EndQuestion)
+  // Spieler: Antwort (änderbar bis gesperrt)
   socket.on('answer', (answer) => {
     if (!gameActive || !currentQuestion) return;
     const p = players.find(p=>p.sid===sid);
-    if (!p || !p.alive) return; // Eliminierte ignorieren
-    // nur erlaubte Antwortstrings
+    if (!p || !p.alive) return; // eliminierte ignorieren
     if (!currentQuestion.answers.includes(answer)) return;
 
     p.lastAnswer = answer;
-    socket.emit('answerAck', answer); // Feedback an Spieler
-    emitPlayers(); // Admin/Präsentation sehen aktuelle Wahl (anonym)
+    socket.emit('answerAck', answer); // Feedback an diesen Spieler
+    emitPlayers();                    // Admin/Präsentation sehen anonymen Stand
   });
 
   // Admin: Frage beenden -> sperren & eliminieren
@@ -164,21 +171,20 @@ io.on('connection', (socket) => {
     if (!currentQuestion) return;
     const correct = currentQuestion.correct;
 
-    // Sperre (Info an Clients)
+    // Lock-Info an Clients
     io.emit('questionLocked', { correct });
 
-    // Ermitteln, wer raus ist
+    // Eliminierte bestimmen (keine oder falsche Antwort)
     const eliminated = [];
     players.forEach(p => {
       if (!p.alive) return;
-      // Keine Antwort => raus (kannst du ändern, wenn gewünscht)
       if (p.lastAnswer === null || p.lastAnswer !== correct) {
         p.alive = false;
         eliminated.push(p.number);
       }
     });
 
-    // Eliminierte aus Room 'alive' entfernen
+    // Aus Room 'alive' entfernen (bekommen keine neue Frage mehr)
     eliminated.forEach(num => {
       const pl = players.find(pp=>pp.number===num);
       if (pl) io.sockets.sockets.get(pl.sid)?.leave('alive');
@@ -186,10 +192,10 @@ io.on('connection', (socket) => {
 
     gameActive = false;
 
-    // Präsentation: animierte Elimination als Sequenz (nur Nummern)
+    // Präsentation: sequentielle Elimination (eine Nummer nach der anderen)
     io.emit('eliminationSequence', { eliminatedNumbers: eliminated, correct });
 
-    // Spieler/Display: Ergebnis
+    // Ergebnis
     io.emit('questionEnded', { correct });
     emitPlayers();
     broadcastStats();
