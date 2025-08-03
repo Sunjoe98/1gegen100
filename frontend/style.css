@@ -1,26 +1,79 @@
-body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; background: #f7f7f7; }
-h1, h2 { color: #222; margin: 12px 0; }
-button { padding: 10px 20px; margin: 6px; font-size: 16px; cursor: pointer; }
-#questionText { font-size: 1.6em; margin: 18px 0; }
-.player-list { text-align: left; max-width: 560px; margin: 16px auto; line-height: 1.6; }
-.badge { display:inline-block; padding:2px 6px; border-radius:4px; background:#eee; margin-left:6px; font-size:12px; }
-.footer { margin: 8px 0 18px; color:#444; }
-
-.grid { display:grid; gap:8px; justify-content:center; }
-.grid.auto { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); max-width: 920px; margin: 0 auto; }
-
-.cell { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:6px; background:#e8e8e8; transition:background 180ms ease, transform 120ms ease; }
-.cell.alive { background:#4caf50; color:#fff; }
-.cell.dead  { background:#b0b0b0; color:#444; }  /* optional, falls grau benötigt */
-.cell.elim  { background:#ff5252 !important; color:#fff; box-shadow:0 0 10px rgba(255,82,82,.7); }
-
-/* NEU: dauerhaft ausgeschieden = rot */
-.cell.out   { background:#e53935 !important; color:#fff; box-shadow:none; }
-
-/* kurzes Pulsieren beim Eliminieren */
-@keyframes pulse-red {
-  0%   { transform: scale(1.00); box-shadow:0 0 0 rgba(229,57,53,0.0); }
-  50%  { transform: scale(1.06); box-shadow:0 0 14px rgba(229,57,53,0.8); }
-  100% { transform: scale(1.00); box-shadow:0 0 0 rgba(229,57,53,0.0); }
+:root{
+  --bg:#0d0d0f;
+  --card:#151518;
+  --muted:#1f1f24;
+  --text:#e8e8ea;
+  --sub:#a4a4ac;
+  --accent:#e30613;    /* Rot-Akzent */
+  --accent2:#ff5252;   /* Leuchteffekt */
+  --ok:#2ecc71;
+  --warn:#ffbe0b;
 }
-.cell.elim { animation: pulse-red 0.45s ease; }
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; padding:0; background:var(--bg); color:var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  display:flex; flex-direction:column; align-items:center;
+}
+h1{font-size:28px; margin:18px 0 10px; letter-spacing:.5px}
+h2{font-size:22px; margin:10px 0 14px; color:#fff}
+a{color:var(--accent)}
+
+.container{
+  width:100%; max-width:960px; padding:16px;
+}
+.card{
+  background:linear-gradient(180deg, var(--card), #101013);
+  border:1px solid #1a1a1e; border-radius:14px; padding:16px; box-shadow:0 8px 30px rgba(0,0,0,.35);
+}
+.row{display:flex; gap:12px; flex-wrap:wrap; align-items:center}
+.grow{flex:1}
+.btn{
+  background:var(--accent); color:#fff; border:none; padding:10px 16px;
+  border-radius:10px; font-size:16px; cursor:pointer; transition:transform .05s ease, box-shadow .2s ease, opacity .2s ease;
+  box-shadow:0 6px 20px rgba(227,6,19,.25);
+}
+.btn.secondary{ background:var(--muted); color:#fff; box-shadow:none; border:1px solid #26262c }
+.btn:disabled{ opacity:.5; cursor:not-allowed }
+.btn:active{ transform:scale(.98) }
+
+.input{
+  background:#0f0f12; border:1px solid #28282f; color:#fff; padding:10px 12px; border-radius:10px; outline:none; width:100%;
+}
+
+.badge{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#18181c; border:1px solid #26262c; color:#d2d2d7; font-size:12px }
+.badge.ok{ background:#11361f; border-color:#184f2b; color:#c6f2d7 }
+.badge.warn{ background:#3a2e02; border-color:#5c4704; color:#ffe29a }
+.footer{ color:var(--sub); margin:8px 0 18px }
+
+#questionText{ font-size:22px; margin:12px 0 16px }
+
+.grid{ display:grid; gap:8px; justify-content:center }
+.grid.auto{ grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); max-width:980px; margin:0 auto }
+
+.cell{
+  width:36px; height:36px; display:flex; align-items:center; justify-content:center;
+  border-radius:8px; background:#1f1f24; color:#c9c9d1; border:1px solid #2b2b33;
+  transition:background 160ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.cell.alive{ background:#184f2b; color:#dff8ea; border-color:#1f6a3a }
+.cell.out  { background:#5a1316; color:#ffdede; border-color:#7a1419 } /* permanent rot-dunkel */
+
+.cell.elim{ background:#7a0e14; color:#fff; box-shadow:0 0 12px rgba(255,82,82,.65); border-color:#a5151c }
+
+@keyframes pulse-red {
+  0%{ transform:scale(1.00); box-shadow:0 0 0 rgba(255,82,82,0) }
+  50%{ transform:scale(1.06); box-shadow:0 0 18px rgba(255,82,82,.8) }
+  100%{ transform:scale(1.00); box-shadow:0 0 0 rgba(255,82,82,0) }
+}
+.cell.elim{ animation:pulse-red .42s ease }
+
+.answers{ display:grid; gap:10px; }
+.answers .btn{ text-align:left; justify-content: flex-start; padding:12px 14px }
+.answers .btn.choice{ background:#19191c; border:1px solid #2b2b33; box-shadow:none }
+.answers .btn.choice.active{ outline:2px solid var(--accent); }
+
+.hr{ height:1px; background:#1d1d22; border:0; margin:12px 0 }
+.center{ text-align:center }
