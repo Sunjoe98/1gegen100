@@ -90,6 +90,10 @@
       }
     });
   });
+  //Eigene Zufaellige Nummer
+  socket.on('youAre', ({ number }) => {
+  document.getElementById('myNumber').innerText = number;
+});
 
   // Eliminationsliste vom Backend (in Reihenfolge abspielen)
   socket.on('eliminationSequence', async ({ eliminatedNumbers }) => {
