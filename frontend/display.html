@@ -7,40 +7,27 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>1 gegen 100</h1>
-  <h2 id="questionText">Warten auf nächste Frage…</h2>
-  <div id="countdown" style="font-size:2em; margin:20px;"></div>
-  <p>Verbleibende Spieler: <span id="playerCount">0</span></p>
+  <div class="container">
+    <h1>1 gegen 100</h1>
+    <div class="card">
+      <div class="footer">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></div>
+      <h2 id="questionText">Warten auf nächste Frage…</h2>
+    </div>
+  </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const socket = io('https://onegegen100-u6h7.onrender.com');
-    let countdownTimer;
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const socket = io(SOCKET_URL);
 
-    socket.on('newQuestion', (q) => {
-      document.getElementById("questionText").innerText = q.text;
-      startCountdown(10);
+    socket.on('stats', ({alive,total}) => {
+      document.getElementById('aliveCount').innerText = alive;
+      document.getElementById('totalCount').innerText = total;
     });
 
-    socket.on('updatePlayers', (players) => {
-      const alive = players.filter(p => p.alive).length;
-      document.getElementById("playerCount").innerText = alive;
+    socket.on('displayQuestion', q => {
+      document.getElementById('questionText').innerText = q.text;
     });
-
-    socket.on('questionEnded', ({ correct }) => {
-      // optional Anzeige der richtigen Antwort
-    });
-
-    function startCountdown(seconds) {
-      clearInterval(countdownTimer);
-      let remaining = seconds;
-      document.getElementById("countdown").innerText = remaining;
-      countdownTimer = setInterval(() => {
-        remaining--;
-        document.getElementById("countdown").innerText = remaining;
-        if (remaining <= 0) clearInterval(countdownTimer);
-      }, 1000);
-    }
   </script>
 </body>
 </html>
