@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>1 gegen 100 – Leinwand</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -17,16 +17,15 @@
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
     const socket = io(SOCKET_URL);
 
     socket.on('stats', ({alive,total}) => {
       document.getElementById('aliveCount').innerText = alive;
       document.getElementById('totalCount').innerText = total;
     });
-
     socket.on('displayQuestion', q => {
-      document.getElementById('questionText').innerText = q.text;
+      document.getElementById('questionText').innerText = `(${q.topic}) ${q.text}`;
     });
   </script>
 </body>
