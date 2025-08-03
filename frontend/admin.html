@@ -10,6 +10,8 @@
   <h1>Admin</h1>
 
   <div id="regStatus" class="badge">Registrierung: OFFEN</div>
+  <div class="footer">Noch im Spiel: <span id="aliveCount">0</span> / <span id="totalCount">0</span></div>
+
   <div>
     <button id="startBtn">Registrierung schließen (Spiel starten)</button>
     <button id="openBtn">Registrierung öffnen</button>
@@ -19,34 +21,41 @@
     <button id="endBtn">Frage beenden</button>
   </div>
 
-  <p>Verbleibende Spieler: <span id="aliveCount">0</span></p>
+  <h2 id="qTitle">Aktuelle Frage</h2>
+  <div id="qText">–</div>
+
   <div id="players" class="player-list"></div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const socket = io('https://onegegen100-u6h7.onrender.com');
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const socket = io(SOCKET_URL);
 
     document.getElementById('startBtn').onclick = () => socket.emit('startGame');
     document.getElementById('openBtn').onclick  = () => socket.emit('openRegistration');
     document.getElementById('nextBtn').onclick  = () => socket.emit('nextQuestion');
     document.getElementById('endBtn').onclick   = () => socket.emit('endQuestion');
 
-    socket.on('registrationClosed', () => {
-      document.getElementById('regStatus').textContent = 'Registrierung: GESCHLOSSEN';
+    socket.on('registrationClosed', () => document.getElementById('regStatus').textContent = 'Registrierung: GESCHLOSSEN');
+    socket.on('registrationOpened', () => document.getElementById('regStatus').textContent = 'Registrierung: OFFEN');
+
+    socket.on('stats', ({alive,total}) => {
+      document.getElementById('aliveCount').innerText = alive;
+      document.getElementById('totalCount').innerText = total;
     });
-    socket.on('registrationOpened', () => {
-      document.getElementById('regStatus').textContent = 'Registrierung: OFFEN';
+
+    socket.on('displayQuestion', (q) => {
+      document.getElementById('qText').textContent = q.text + ' [' + q.answers.join(' / ') + ']';
     });
 
     socket.on('updatePlayers', (players) => {
-      const alive = players.filter(p => p.alive).length;
-      document.getElementById('aliveCount').innerText = `${alive} / ${players.length}`;
+      // players: {number, alive, lastAnswer}
       document.getElementById('players').innerHTML = players
-        .map(p => `${p.alive ? '🟢' : '⚫'} ${p.name}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
+        .map(p => `${p.alive ? '🟢' : '⚫'} #${p.number}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
         .join('<br>');
     });
 
-    socket.on('noQuestionsLeft', () => alert('Keine Fragen mehr verfügbar. Bitte questions.json ergänzen.'));
+    socket.on('noQuestionsLeft', () => alert('Keine Fragen mehr verfügbar.'));
   </script>
 </body>
 </html>
