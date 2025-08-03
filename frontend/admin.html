@@ -37,10 +37,12 @@
       <h2>Frage</h2>
       <div id="qText" class="footer">–</div>
       <div class="row">
-        <button id="soloA1" class="btn secondary">Solo-Antwort A</button>
-        <button id="soloA2" class="btn secondary">Solo-Antwort B</button>
-        <button id="soloA3" class="btn secondary">Solo-Antwort C</button>
+        <button id="soloA1" class="btn secondary" disabled>Solo-Antwort A</button>
+        <button id="soloA2" class="btn secondary" disabled>Solo-Antwort B</button>
+        <button id="soloA3" class="btn secondary" disabled>Solo-Antwort C</button>
+
         <button id="revealBtn" class="btn">Auflösen & Show</button>
+        <button id="showCorrectBtn" class="btn secondary">Richtige Antwort zeigen</button>
         <button id="backBtn" class="btn secondary">Zurück zur Frageansicht</button>
         <button id="nextRoundBtn" class="btn secondary">Nächste Themenrunde</button>
       </div>
@@ -50,7 +52,7 @@
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // anpassen
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
     const socket = io(SOCKET_URL);
 
     const setPhase = p => document.getElementById('phaseText').innerText = p;
@@ -67,27 +69,36 @@
     document.getElementById('confirmTopicBtn').onclick = ()=> socket.emit('startQuestionWithTopic');
 
     document.getElementById('revealBtn').onclick = ()=> socket.emit('revealAndEliminate');
+    document.getElementById('showCorrectBtn').onclick = ()=> socket.emit('revealCorrect');
     document.getElementById('backBtn').onclick   = ()=> socket.emit('backToQuestionView');
     document.getElementById('nextRoundBtn').onclick = ()=> socket.emit('nextRound');
 
-    // Solo-Antwort Buttons
-    const soloBtns = [ 'soloA1','soloA2','soloA3' ];
-    soloBtns.forEach((id,idx)=>{
-      document.getElementById(id).onclick = ()=>{
+    // Solo-Antwort-Buttons
+    const soloButtons = [
+      document.getElementById('soloA1'),
+      document.getElementById('soloA2'),
+      document.getElementById('soloA3')
+    ];
+    soloButtons.forEach((b,idx)=>{
+      b.onclick = ()=>{
         const text = document.getElementById('qText').dataset.answers;
         if(!text){ alert('Keine Frage aktiv'); return; }
         const answers = JSON.parse(text);
-        socket.emit('setSoloAnswer', answers[idx]);
+        // Optik: aktive markieren
+        soloButtons.forEach(x=>x.classList.remove('active'));
+        b.classList.add('active');
+        socket.emit('setSoloAnswer', { index: idx, answer: answers[idx] });
       };
     });
 
+    // Stats / Status
     socket.on('stats', ({alive,total,gamePhase,soloNumber,chosenTopic})=>{
       document.getElementById('aliveCount').innerText=alive;
       document.getElementById('totalCount').innerText=total;
       setPhase(gamePhase);
       document.getElementById('soloNum').innerText = soloNumber ?? '–';
       const ti = document.getElementById('topicsInfo');
-      ti.textContent = chosenTopic ? 'Gewähltes Thema: '+chosenTopic : ti.textContent;
+      if (chosenTopic) ti.textContent = 'Gewähltes Thema: '+chosenTopic;
     });
     socket.on('soloSet', ({soloNumber})=>{
       document.getElementById('soloNum').innerText = soloNumber ?? '–';
@@ -98,11 +109,16 @@
     socket.on('topicChosen', ({chosenTopic})=>{
       document.getElementById('topicsInfo').textContent = 'Gewählt: '+chosenTopic;
     });
-
     socket.on('displayQuestion', (q)=>{
       const qt = document.getElementById('qText');
       qt.textContent = `(${q.topic}) ${q.text} [${q.answers.join(' / ')}]`;
       qt.dataset.answers = JSON.stringify(q.answers);
+      // Buttons füllen & aktivieren
+      soloButtons.forEach((b,idx)=>{
+        b.textContent = `Solo-Antwort ${String.fromCharCode(65+idx)}: ${q.answers[idx]}`;
+        b.disabled = false;
+        b.classList.remove('active');
+      });
     });
 
     socket.on('updatePlayers', (players)=>{
