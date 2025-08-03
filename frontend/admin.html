@@ -1,6 +1,5 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
   <meta charset="utf-8">
   <title>1 gegen 100 – Admin</title>
@@ -8,49 +7,46 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Admin-Panel</h1>
-  <p>Frage auswählen, starten und beenden.</p>
+  <h1>Admin</h1>
 
-  <select id="questionSelect"></select>
-  <button id="startBtn">Frage starten</button>
-  <button id="endBtn">Frage beenden</button>
+  <div id="regStatus" class="badge">Registrierung: OFFEN</div>
+  <div>
+    <button id="startBtn">Registrierung schließen (Spiel starten)</button>
+    <button id="openBtn">Registrierung öffnen</button>
+  </div>
+  <div>
+    <button id="nextBtn">Nächste Frage</button>
+    <button id="endBtn">Frage beenden</button>
+  </div>
 
-  <div class="player-list" id="players"></div>
+  <p>Verbleibende Spieler: <span id="aliveCount">0</span></p>
+  <div id="players" class="player-list"></div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
     const socket = io('https://onegegen100-u6h7.onrender.com');
-    let questions = [];
 
-    async function loadQuestions(){
-      const res = await fetch('https://onegegen100-u6h7.onrender.com/questions.json');
-      questions = await res.json();
-      const sel = document.getElementById('questionSelect');
-      sel.innerHTML = '';
-      questions.forEach((q, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = q.text + ' [' + q.answers.join(' / ') + ']';
-        sel.appendChild(opt);
-      });
-    }
+    document.getElementById('startBtn').onclick = () => socket.emit('startGame');
+    document.getElementById('openBtn').onclick  = () => socket.emit('openRegistration');
+    document.getElementById('nextBtn').onclick  = () => socket.emit('nextQuestion');
+    document.getElementById('endBtn').onclick   = () => socket.emit('endQuestion');
 
-    socket.on('updatePlayers', (players)=>{
+    socket.on('registrationClosed', () => {
+      document.getElementById('regStatus').textContent = 'Registrierung: GESCHLOSSEN';
+    });
+    socket.on('registrationOpened', () => {
+      document.getElementById('regStatus').textContent = 'Registrierung: OFFEN';
+    });
+
+    socket.on('updatePlayers', (players) => {
+      const alive = players.filter(p => p.alive).length;
+      document.getElementById('aliveCount').innerText = `${alive} / ${players.length}`;
       document.getElementById('players').innerHTML = players
-        .map(p => (p.alive ? '🟢 ' : '⚫ ') + p.name)
+        .map(p => `${p.alive ? '🟢' : '⚫'} ${p.name}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
         .join('<br>');
     });
 
-    document.getElementById('startBtn').onclick = ()=>{
-      const idx = +document.getElementById('questionSelect').value;
-      socket.emit('startQuestion', questions[idx]);
-    };
-
-    document.getElementById('endBtn').onclick = ()=>{
-      socket.emit('endQuestion');
-    };
-
-    loadQuestions();
+    socket.on('noQuestionsLeft', () => alert('Keine Fragen mehr verfügbar. Bitte questions.json ergänzen.'));
   </script>
 </body>
 </html>
