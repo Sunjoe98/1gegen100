@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>1 gegen 100 – Admin</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,55 +12,107 @@
 
     <div class="card">
       <div class="row">
-        <span id="regStatus" class="badge">Registrierung: OFFEN</span>
         <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
+        <span class="badge">Phase: <span id="phaseText">lobby</span></span>
+        <span class="badge">Solo: <span id="soloNum">–</span></span>
       </div>
-      <div class="row" style="margin-top:10px;">
-        <button id="startBtn" class="btn">Registrierung schließen (Start)</button>
+      <div class="row" style="margin-top:8px;">
+        <input id="soloInput" class="input" style="width:140px" placeholder="Solo-Nummer">
+        <button id="setSoloBtn" class="btn secondary">Solo setzen</button>
+        <button id="startBtn" class="btn">Spiel starten (Themenwahl)</button>
         <button id="openBtn"  class="btn secondary">Registrierung öffnen</button>
-      </div>
-      <div class="row">
-        <button id="nextBtn" class="btn">Nächste Frage</button>
-        <button id="endBtn"  class="btn secondary">Frage beenden</button>
       </div>
     </div>
 
     <div class="card" style="margin-top:12px;">
-      <h2>Aktuelle Frage</h2>
+      <h2>Runde</h2>
+      <div class="row">
+        <button id="offerBtn" class="btn secondary">Themen anbieten</button>
+        <button id="confirmTopicBtn" class="btn">Thema bestätigen & Frage starten</button>
+      </div>
+      <div id="topicsInfo" class="footer">–</div>
+
+      <div class="hr"></div>
+
+      <h2>Frage</h2>
       <div id="qText" class="footer">–</div>
-      <div id="players" class="player-list"></div>
+      <div class="row">
+        <button id="soloA1" class="btn secondary">Solo-Antwort A</button>
+        <button id="soloA2" class="btn secondary">Solo-Antwort B</button>
+        <button id="soloA3" class="btn secondary">Solo-Antwort C</button>
+        <button id="revealBtn" class="btn">Auflösen & Show</button>
+        <button id="backBtn" class="btn secondary">Zurück zur Frageansicht</button>
+        <button id="nextRoundBtn" class="btn secondary">Nächste Themenrunde</button>
+      </div>
+      <div id="players" class="player-list" style="margin-top:8px;"></div>
     </div>
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // anpassen
     const socket = io(SOCKET_URL);
 
-    document.getElementById('startBtn').onclick = () => socket.emit('startGame');
-    document.getElementById('openBtn').onclick  = () => socket.emit('openRegistration');
-    document.getElementById('nextBtn').onclick  = () => socket.emit('nextQuestion');
-    document.getElementById('endBtn').onclick   = () => socket.emit('endQuestion');
+    const setPhase = p => document.getElementById('phaseText').innerText = p;
 
-    socket.on('registrationClosed', () => document.getElementById('regStatus').textContent = 'Registrierung: GESCHLOSSEN');
-    socket.on('registrationOpened', () => document.getElementById('regStatus').textContent = 'Registrierung: OFFEN');
+    document.getElementById('setSoloBtn').onclick = ()=>{
+      const n = Number(document.getElementById('soloInput').value);
+      if(!n) return alert('Nummer eingeben');
+      socket.emit('setSoloPlayer', n);
+    };
+    document.getElementById('startBtn').onclick = ()=> socket.emit('startGame');
+    document.getElementById('openBtn').onclick  = ()=> socket.emit('openRegistration');
 
-    socket.on('stats', ({alive,total}) => {
-      document.getElementById('aliveCount').innerText = alive;
-      document.getElementById('totalCount').innerText = total;
+    document.getElementById('offerBtn').onclick = ()=> socket.emit('offerTopics');
+    document.getElementById('confirmTopicBtn').onclick = ()=> socket.emit('startQuestionWithTopic');
+
+    document.getElementById('revealBtn').onclick = ()=> socket.emit('revealAndEliminate');
+    document.getElementById('backBtn').onclick   = ()=> socket.emit('backToQuestionView');
+    document.getElementById('nextRoundBtn').onclick = ()=> socket.emit('nextRound');
+
+    // Solo-Antwort Buttons
+    const soloBtns = [ 'soloA1','soloA2','soloA3' ];
+    soloBtns.forEach((id,idx)=>{
+      document.getElementById(id).onclick = ()=>{
+        const text = document.getElementById('qText').dataset.answers;
+        if(!text){ alert('Keine Frage aktiv'); return; }
+        const answers = JSON.parse(text);
+        socket.emit('setSoloAnswer', answers[idx]);
+      };
     });
 
-    socket.on('displayQuestion', (q) => {
-      document.getElementById('qText').textContent = q.text + ' [' + q.answers.join(' / ') + ']';
+    socket.on('stats', ({alive,total,gamePhase,soloNumber,chosenTopic})=>{
+      document.getElementById('aliveCount').innerText=alive;
+      document.getElementById('totalCount').innerText=total;
+      setPhase(gamePhase);
+      document.getElementById('soloNum').innerText = soloNumber ?? '–';
+      const ti = document.getElementById('topicsInfo');
+      ti.textContent = chosenTopic ? 'Gewähltes Thema: '+chosenTopic : ti.textContent;
+    });
+    socket.on('soloSet', ({soloNumber})=>{
+      document.getElementById('soloNum').innerText = soloNumber ?? '–';
+    });
+    socket.on('topicOffered', ({options})=>{
+      document.getElementById('topicsInfo').textContent = 'Angebotene Themen: '+options.join(' vs ');
+    });
+    socket.on('topicChosen', ({chosenTopic})=>{
+      document.getElementById('topicsInfo').textContent = 'Gewählt: '+chosenTopic;
     });
 
-    socket.on('updatePlayers', (players) => {
+    socket.on('displayQuestion', (q)=>{
+      const qt = document.getElementById('qText');
+      qt.textContent = `(${q.topic}) ${q.text} [${q.answers.join(' / ')}]`;
+      qt.dataset.answers = JSON.stringify(q.answers);
+    });
+
+    socket.on('updatePlayers', (players)=>{
       document.getElementById('players').innerHTML = players
-        .map(p => `${p.alive ? '🟢' : '🔴'} #${p.number}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
+        .map(p => `${p.alive ? '🟢' : '🔴'} #${p.number}${p.lastAnswer ? ' · '+p.lastAnswer : ''}`)
         .join('<br>');
     });
 
-    socket.on('noQuestionsLeft', () => alert('Keine Fragen mehr verfügbar.'));
+    socket.on('adminError', msg => alert(msg));
+    socket.on('noQuestionsLeftForTopic', ({topic})=> alert('Keine Fragen mehr für: '+topic));
   </script>
 </body>
 </html>
