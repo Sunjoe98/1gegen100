@@ -1,10 +1,11 @@
 // 1 gegen 100 – Backend (Express + Socket.IO)
-// Features:
-// - Registrierung kann gesperrt/geöffnet werden
-// - Zufällige Fragen; keine Wiederholung dank asked.json (persistente IDs)
-// - Spieler sehen ihre eingeloggt Antwort (lastAnswer)
-// - Admin steuert Start/Ende/Nächste Frage; keine Auswahl mehr nötig
-// - Statische Auslieferung von questions.json / asked.json
+// Neu:
+// - Antworten bis Fragenende änderbar (kein Lock beim ersten Klick)
+// - Eliminierte erhalten keine neuen Fragen (Room 'alive')
+// - Live-Stats (alive/total) für alle
+// - Präsentationsseite mit Elimination-Animation (per 'eliminationSequence')
+// - Zufällige Fragen, nie doppelt (asked.json), persistent
+// - Spieler haben anonyme Nummern (playerNumber)
 
 const express = require('express');
 const http = require('http');
@@ -15,182 +16,193 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
-});
+const io = socketIo(server, { cors: { origin: "*", methods: ["GET","POST"] } });
 
-// ---- Pfade/Dateien
 const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
 const ASKED_FILE = path.join(__dirname, 'asked.json');
 
-// ---- State
-let players = [];                 // {id, name, alive: true, lastAnswer: null}
-let gameActive = false;
-let registrationOpen = true;
-let currentQuestion = null;
-let questions = [];               // [{id, text, answers:[A,B,C], correct}]
-let askedIds = new Set();         // persistente IDs der schon gestellten Fragen
-
-// ---- Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname))); // /questions.json, /asked.json
 
-// Statische Dateien ausliefern (damit /questions.json & /asked.json abrufbar sind)
-app.use(express.static(path.join(__dirname)));
+// ---- State
+let players = []; // {id,sid,name,number,alive,true,lastAnswer:null}
+let nextPlayerNumber = 1;
+let registrationOpen = true;
+let gameActive = false;
+let currentQuestion = null;
+let questions = [];     // {id,text,answers[3],correct}
+let askedIds = new Set();
 
-// ---- Helper
+// ---- Helpers
 function loadQuestions() {
   if (!fs.existsSync(QUESTIONS_FILE)) {
-    console.error('questions.json fehlt. Bitte anlegen.');
+    console.error('questions.json fehlt.');
     questions = [];
     return;
   }
-  const data = fs.readFileSync(QUESTIONS_FILE, 'utf8');
-  const raw = JSON.parse(data);
+  const raw = JSON.parse(fs.readFileSync(QUESTIONS_FILE,'utf8'));
   questions = raw.map((q, idx) => ({
-    id: q.id ?? idx,     // falls id fehlt, Index als id
+    id: q.id ?? idx,
     text: q.text,
     answers: q.answers,
     correct: q.correct
-  }));
-  // einfache Validierung
-  questions = questions.filter(q =>
-    q && q.text && Array.isArray(q.answers) &&
-    q.answers.length === 3 && q.answers.includes(q.correct)
-  );
-  console.log(`Fragen geladen: ${questions.length}`);
+  })).filter(q => q && q.text && Array.isArray(q.answers) && q.answers.length===3 && q.answers.includes(q.correct));
+  console.log('Fragen geladen:', questions.length);
 }
-
 function loadAsked() {
   if (fs.existsSync(ASKED_FILE)) {
-    try {
-      askedIds = new Set(JSON.parse(fs.readFileSync(ASKED_FILE, 'utf8')));
-    } catch {
-      askedIds = new Set();
-    }
+    try { askedIds = new Set(JSON.parse(fs.readFileSync(ASKED_FILE,'utf8'))); }
+    catch { askedIds = new Set(); }
   } else {
-    askedIds = new Set();
     fs.writeFileSync(ASKED_FILE, JSON.stringify([]), 'utf8');
+    askedIds = new Set();
   }
-  console.log(`Bereits gestellte Fragen (persistiert): ${askedIds.size}`);
+  console.log('Schon gestellt:', askedIds.size);
 }
-
 function persistAsked() {
-  try {
-    fs.writeFileSync(ASKED_FILE, JSON.stringify([...askedIds]), 'utf8');
-  } catch (e) {
-    console.error('asked.json konnte nicht geschrieben werden:', e.message);
-  }
+  try { fs.writeFileSync(ASKED_FILE, JSON.stringify([...askedIds]), 'utf8'); }
+  catch(e){ console.error('asked.json write fail:', e.message); }
 }
-
 function pickNextQuestion() {
-  const available = questions.filter(q => !askedIds.has(q.id));
-  if (available.length === 0) return null;
-  const q = available[Math.floor(Math.random() * available.length)];
-  askedIds.add(q.id);
-  persistAsked();
+  const pool = questions.filter(q => !askedIds.has(q.id));
+  if (!pool.length) return null;
+  const q = pool[Math.floor(Math.random()*pool.length)];
+  askedIds.add(q.id); persistAsked();
   return q;
 }
 
-// ---- Health
-app.get('/', (req, res) => {
-  res.send('1 gegen 100 Backend läuft.');
-});
+function stats() {
+  const alive = players.filter(p=>p.alive).length;
+  return { alive, total: players.length, gameActive, registrationOpen };
+}
+function broadcastStats() { io.emit('stats', stats()); }
+function emitPlayers() { io.emit('updatePlayers', players.map(p => ({ number: p.number, alive: p.alive, lastAnswer: p.lastAnswer }))); }
 
-// ---- (Optional) Reset-Endpoint (nur manuell nutzen, z. B. via curl)
-// ACHTUNG: setzt asked.json zurück!
-// app.post('/admin/reset-asked', (req, res) => {
-//   askedIds = new Set();
-//   persistAsked();
-//   res.json({ ok: true, askedCount: askedIds.size });
-// });
+// ---- HTTP
+app.get('/', (_,res)=>res.send('1 gegen 100 Backend läuft.'));
 
-// ---- Socket.IO
+// ---- Sockets
 io.on('connection', (socket) => {
-  console.log('Verbunden:', socket.id);
+  const sid = socket.id;
+  console.log('Verbunden:', sid);
 
-  // Spieler versucht beizutreten
+  // Spieler beitreten
   socket.on('joinGame', (name) => {
     if (!registrationOpen) {
       socket.emit('joinRejected', 'Registrierung ist geschlossen.');
       return;
     }
-    if (!players.find(p => p.id === socket.id)) {
-      players.push({
-        id: socket.id,
-        name: String(name || 'Spieler'),
-        alive: true,
-        lastAnswer: null
-      });
-      io.emit('updatePlayers', players);
-    }
+    const exists = players.find(p=>p.sid===sid);
+    if (exists) return;
+
+    const player = {
+      id: sid, sid,
+      name: String(name||'Spieler'),
+      number: nextPlayerNumber++,
+      alive: true,
+      lastAnswer: null
+    };
+    players.push(player);
+
+    // Rooms: Alive-Gruppe
+    socket.join('alive');
+
+    emitPlayers();
+    broadcastStats();
   });
 
   // Admin: Registrierung schließen (Spielstart)
   socket.on('startGame', () => {
     registrationOpen = false;
     io.emit('registrationClosed');
+    broadcastStats();
   });
 
-  // Admin: Registrierung wieder öffnen (neues Spiel/Lobby)
+  // Admin: Registrierung öffnen (neue Runde/Lobby)
   socket.on('openRegistration', () => {
     registrationOpen = true;
     io.emit('registrationOpened');
+    broadcastStats();
   });
 
-  // Admin: nächste zufällige Frage
+  // Admin: nächste Frage (zufällig & nie doppelt)
   socket.on('nextQuestion', () => {
-    currentQuestion = pickNextQuestion();
-    if (!currentQuestion) {
-      io.emit('noQuestionsLeft');
-      return;
-    }
+    const q = pickNextQuestion();
+    if (!q) { io.emit('noQuestionsLeft'); return; }
+    currentQuestion = q;
     gameActive = true;
-    // Pro Runde: letzte Antworten zurücksetzen
-    players.forEach(p => p.lastAnswer = null);
-    io.emit('updatePlayers', players);
 
-    const { id, text, answers } = currentQuestion;
-    io.emit('newQuestion', { id, text, answers }); // korrekt NICHT mitsenden
+    // Reset Antworten nur für lebende Spieler
+    players.forEach(p => { if (p.alive) p.lastAnswer = null; });
+
+    emitPlayers();
+    broadcastStats();
+
+    // Frage nur an lebende Spieler senden
+    const payload = { id: q.id, text: q.text, answers: q.answers };
+    io.to('alive').emit('newQuestion', payload);
+    // Display & Admin dürfen Frage „sehen“ (für Anzeige)
+    io.emit('displayQuestion', payload);
   });
 
-  // Spieler: antwortet
+  // Spieler: Antwort (mehrfach änderbar bis EndQuestion)
   socket.on('answer', (answer) => {
     if (!gameActive || !currentQuestion) return;
-    const player = players.find(p => p.id === socket.id && p.alive);
-    if (!player) return;
-    // nur 1. Antwort zählt
-    if (player.lastAnswer !== null) return;
-    player.lastAnswer = answer;
-    io.to(socket.id).emit('answerAck', answer); // Feedback an diesen Spieler
-    io.emit('updatePlayers', players);          // Admin/Display updaten
+    const p = players.find(p=>p.sid===sid);
+    if (!p || !p.alive) return; // Eliminierte ignorieren
+    // nur erlaubte Antwortstrings
+    if (!currentQuestion.answers.includes(answer)) return;
+
+    p.lastAnswer = answer;
+    socket.emit('answerAck', answer); // Feedback an Spieler
+    emitPlayers(); // Admin/Präsentation sehen aktuelle Wahl (anonym)
   });
 
-  // Admin: Frage beenden -> falsche fliegen raus
+  // Admin: Frage beenden -> sperren & eliminieren
   socket.on('endQuestion', () => {
     if (!currentQuestion) return;
     const correct = currentQuestion.correct;
 
+    // Sperre (Info an Clients)
+    io.emit('questionLocked', { correct });
+
+    // Ermitteln, wer raus ist
+    const eliminated = [];
     players.forEach(p => {
-      if (p.alive) {
-        if (p.lastAnswer === null) {
-          // keine Antwort = raus (optional)
-          p.alive = false;
-        } else if (p.lastAnswer !== correct) {
-          p.alive = false;
-        }
+      if (!p.alive) return;
+      // Keine Antwort => raus (kannst du ändern, wenn gewünscht)
+      if (p.lastAnswer === null || p.lastAnswer !== correct) {
+        p.alive = false;
+        eliminated.push(p.number);
       }
     });
 
+    // Eliminierte aus Room 'alive' entfernen
+    eliminated.forEach(num => {
+      const pl = players.find(pp=>pp.number===num);
+      if (pl) io.sockets.sockets.get(pl.sid)?.leave('alive');
+    });
+
     gameActive = false;
+
+    // Präsentation: animierte Elimination als Sequenz (nur Nummern)
+    io.emit('eliminationSequence', { eliminatedNumbers: eliminated, correct });
+
+    // Spieler/Display: Ergebnis
     io.emit('questionEnded', { correct });
-    io.emit('updatePlayers', players);
+    emitPlayers();
+    broadcastStats();
   });
 
-  // Verbindung abgebaut
+  // Disconnect
   socket.on('disconnect', () => {
-    players = players.filter(p => p.id !== socket.id);
-    io.emit('updatePlayers', players);
+    const before = players.length;
+    players = players.filter(p=>p.sid!==sid);
+    if (players.length !== before) {
+      emitPlayers();
+      broadcastStats();
+    }
   });
 });
 
@@ -199,5 +211,5 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   loadQuestions();
   loadAsked();
-  console.log(`Server läuft auf Port ${PORT}`);
+  console.log('Server läuft auf Port', PORT);
 });
