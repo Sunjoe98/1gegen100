@@ -1,11 +1,9 @@
 // 1 gegen 100 – Backend (Express + Socket.IO)
-// Features:
-// - Antworten änderbar bis Fragenende (kein Lock beim 1. Klick)
-// - Eliminierte erhalten keine neuen Fragen (Room 'alive')
-// - Live-Stats (alive/total) für alle Clients
-// - Präsentationsseite: sequentielle Elimination (rot-puls -> permanent rot)
-// - Zufällige Fragen, nie doppelt (asked.json persistent)
-// - Spieler bekommen anonyme Nummer (player.number) und sehen ihre eigene
+// Neu in dieser Version:
+// - youAreOut: elim. Spieler bekommen Event; Frontend lädt zurück zur Zuschaueransicht
+// - Präsentations-Show: sequenziell, zufällige Reihenfolge + zufällige Tempo-Delays
+// - Während der Show unterdrückt die Präsentation eigene Sofort-Reveal-Updates
+// - Dark-UI kompatibel (Frontend)
 
 const express = require('express');
 const http = require('http');
@@ -23,9 +21,7 @@ const ASKED_FILE     = path.join(__dirname, 'asked.json');
 
 app.use(cors());
 app.use(express.json());
-
-// Statische Auslieferung (u. a. /questions.json und /asked.json)
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname))); // /questions.json, /asked.json
 
 // ---- State
 let players = []; // {sid,name,number,alive,lastAnswer}
@@ -82,7 +78,6 @@ function stats() {
 }
 function broadcastStats() { io.emit('stats', stats()); }
 function publicPlayers() {
-  // nur anonyme Infos für Frontend/Präsentation
   return players.map(p => ({ number: p.number, alive: p.alive, lastAnswer: p.lastAnswer }));
 }
 function emitPlayers() { io.emit('updatePlayers', publicPlayers()); }
@@ -98,7 +93,7 @@ io.on('connection', (socket) => {
   // Spieler beitreten
   socket.on('joinGame', (name) => {
     if (!registrationOpen) {
-      socket.emit('joinRejected', 'Registrierung ist geschlossen.');
+      socket.emit('joinRejected', 'Registrierung ist geschlossen. Spiel läuft.');
       return;
     }
     const exists = players.find(p=>p.sid===sid);
@@ -151,7 +146,7 @@ io.on('connection', (socket) => {
 
     const payload = { id: q.id, text: q.text, answers: q.answers };
     io.to('alive').emit('newQuestion', payload); // nur Lebende sehen Frage
-    io.emit('displayQuestion', payload);         // für Admin/Display
+    io.emit('displayQuestion', payload);         // für Admin/Display/Zuschauer
   });
 
   // Spieler: Antwort (änderbar bis gesperrt)
@@ -162,7 +157,7 @@ io.on('connection', (socket) => {
     if (!currentQuestion.answers.includes(answer)) return;
 
     p.lastAnswer = answer;
-    socket.emit('answerAck', answer); // Feedback an diesen Spieler
+    socket.emit('answerAck', answer); // Feedback an Spieler
     emitPlayers();                    // Admin/Präsentation sehen anonymen Stand
   });
 
@@ -174,28 +169,36 @@ io.on('connection', (socket) => {
     // Lock-Info an Clients
     io.emit('questionLocked', { correct });
 
-    // Eliminierte bestimmen (keine oder falsche Antwort)
+    // Eliminierte bestimmen
     const eliminated = [];
     players.forEach(p => {
       if (!p.alive) return;
       if (p.lastAnswer === null || p.lastAnswer !== correct) {
         p.alive = false;
-        eliminated.push(p.number);
+        eliminated.push({ number: p.number, sid: p.sid });
       }
     });
 
-    // Aus Room 'alive' entfernen (bekommen keine neue Frage mehr)
-    eliminated.forEach(num => {
-      const pl = players.find(pp=>pp.number===num);
-      if (pl) io.sockets.sockets.get(pl.sid)?.leave('alive');
+    // Aus Room 'alive' entfernen
+    eliminated.forEach(({sid}) => {
+      io.sockets.sockets.get(sid)?.leave('alive');
+    });
+
+    // Eliminierte individuell informieren
+    eliminated.forEach(({sid}) => {
+      io.to(sid).emit('youAreOut');
     });
 
     gameActive = false;
 
-    // Präsentation: sequentielle Elimination (eine Nummer nach der anderen)
-    io.emit('eliminationSequence', { eliminatedNumbers: eliminated, correct });
+    // Zufällige Reihenfolge für Show
+    const order = eliminated.map(e => e.number)
+      .sort(() => Math.random() - 0.5);
 
-    // Ergebnis
+    // Präsentation: sequentielle, zufällige Elimination
+    io.emit('eliminationSequence', { eliminatedNumbers: order, correct });
+
+    // Ergebnis + Stats
     io.emit('questionEnded', { correct });
     emitPlayers();
     broadcastStats();
