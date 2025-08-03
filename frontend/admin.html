@@ -51,7 +51,7 @@
     socket.on('updatePlayers', (players) => {
       // players: {number, alive, lastAnswer}
       document.getElementById('players').innerHTML = players
-        .map(p => `${p.alive ? '🟢' : '⚫'} #${p.number}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
+        .map(p => `${p.alive ? '🟢' : '🔴'} #${p.number}${p.lastAnswer ? ' · ' + p.lastAnswer : ''}`)
         .join('<br>');
     });
 
