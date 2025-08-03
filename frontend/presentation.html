@@ -43,33 +43,39 @@
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // anpassen
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
     const socket = io(SOCKET_URL);
 
     let cells = new Map(); let known = new Set();
     let revealInProgress = false; let revealingSet = new Set();
+    let lastAnswers = [];       // aktuelle Antworten A/B/C
 
     function setPhase(p){ document.getElementById('phaseText').innerText=p; }
     function show(id,b=true){ document.getElementById(id).style.display=b?'block':'none'; }
 
     function ensureCells(players) {
       const grid = document.getElementById('grid');
-      const nums = players.map(p=>p.number).sort((a,b)=>a-b);
-      nums.forEach(n=>{
-        if(!known.has(n)){
-          const d=document.createElement('div'); d.className='cell alive'; d.textContent=n;
-          grid.appendChild(d); cells.set(n,d); known.add(n);
+      const nums = players.map(p => p.number).sort((a,b)=>a-b);
+      nums.forEach(n => {
+        if (!known.has(n)) {
+          const d = document.createElement('div');
+          d.className = 'cell alive';
+          d.textContent = n;
+          grid.appendChild(d);
+          cells.set(n, d);
+          known.add(n);
         }
       });
-      if(!revealInProgress){
-        players.forEach(p=>{
-          const c=cells.get(p.number); if(!c) return;
-          c.classList.remove('alive','out','elim'); c.classList.add(p.alive?'alive':'out');
+      if (!revealInProgress) {
+        players.forEach(p => {
+          const c = cells.get(p.number); if (!c) return;
+          c.classList.remove('alive','out','elim');
+          c.classList.add(p.alive ? 'alive' : 'out');
         });
       }
     }
 
-    function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
+    function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
     async function animateEliminationShow(numbers) {
       revealInProgress = true; revealingSet = new Set(numbers);
       for (const num of numbers) {
@@ -88,10 +94,8 @@
       revealInProgress = false; revealingSet.clear();
     }
 
-    // Themenwahl Interaktion (Solo klickt; Admin bestätigt serverseitig)
-    let offered = [];
+    // Themenwahl
     socket.on('topicOffered', ({options})=>{
-      offered = options.slice();
       setPhase('topicOffer'); show('topicPanel',true); show('questionPanel',false);
       const grid = document.getElementById('topicsGrid'); grid.innerHTML='';
       options.forEach(t=>{
@@ -105,7 +109,6 @@
       });
     });
     socket.on('topicChosen', ({chosenTopic})=>{
-      // Markierung setzen
       [...document.getElementById('topicsGrid').children].forEach(ch=>{
         if(ch.textContent===chosenTopic) ch.classList.add('selected'); else ch.classList.remove('selected');
       });
@@ -115,17 +118,23 @@
     socket.on('displayQuestion', (q)=>{
       document.getElementById('topicName').innerText=q.topic;
       document.getElementById('qText').innerText=q.text;
+
       const ans = document.getElementById('ansList'); ans.innerHTML='';
+      lastAnswers = q.answers.slice();
+      document.getElementById('soloLocked').style.display='none';
+
       q.answers.forEach((a,i)=>{
-        const b=document.createElement('button'); b.className='btn choice'; b.innerText=a; b.disabled=true;
+        const b=document.createElement('button');
+        b.className='btn choice display';
+        b.innerText = `${String.fromCharCode(65+i)}) ${a}`;
         ans.appendChild(b);
       });
-      // UI umschalten
+
       setPhase('question'); show('topicPanel',false); show('questionPanel',true);
-      // Mob timer bar animieren (Client-seitig, 10s)
-      const fill=document.getElementById('mobFill'); fill.style.width='0%';
+      document.getElementById('mobFill').style.width='0%';
     });
 
+    // Mob-Timer Balken
     socket.on('mobTimerStart', ({seconds})=>{
       const fill=document.getElementById('mobFill'); const start=Date.now(), dur=seconds*1000;
       const h=setInterval(()=>{
@@ -134,37 +143,44 @@
       }, 50);
     });
 
-    socket.on('soloAnswerSet', ({answer})=>{
-      const badge=document.getElementById('soloLocked'); badge.style.display='inline-flex';
+    // Solo eingeloggt: Button markieren
+    socket.on('soloAnswerSet', ({ index, answer })=>{
+      const buttons = [...document.getElementById('ansList').querySelectorAll('.choice')];
+      buttons.forEach(x=>x.classList.remove('soloLocked'));
+      if (buttons[index]) {
+        buttons[index].classList.add('soloLocked');
+        document.getElementById('soloLocked').style.display='inline-flex';
+      }
     });
 
-    socket.on('questionLocked', ({correct})=>{
-      // nichts extra; Lock ist bereits serverseitig
-    });
-
-    // Show
+    // Show (ohne richtige Antwort zu verraten)
     socket.on('eliminationSequence', async ({ eliminatedNumbers })=>{
       await animateEliminationShow(eliminatedNumbers);
     });
 
-    // Nach Show zurück zur Frage mit Ergebnis
-    socket.on('questionEnded', ({correct, soloAnswer})=>{
-      setPhase('reveal'); show('questionPanel',true);
-      const info = document.createElement('div');
-      const right = (soloAnswer===correct);
-      info.className='badge'; info.style.marginTop='8px';
-      info.textContent = right ? 'Einzelspieler: RICHTIG' : 'Einzelspieler: FALSCH';
-      document.getElementById('questionPanel').appendChild(info);
+    // Richtige Antwort jetzt grün/rot zeigen
+    socket.on('revealCorrect', ({ correct, soloAnswer })=>{
+      const buttons = [...document.getElementById('ansList').querySelectorAll('.choice')];
+      const idxCorrect = lastAnswers.findIndex(a => a === correct);
+      if (idxCorrect>=0 && buttons[idxCorrect]) buttons[idxCorrect].classList.add('correct');
+      if (soloAnswer && soloAnswer !== correct) {
+        const idxSolo = lastAnswers.findIndex(a => a === soloAnswer);
+        if (idxSolo>=0 && buttons[idxSolo]) buttons[idxSolo].classList.add('wrong');
+      }
     });
 
-    // Allgemeines
+    // Nach Show/Reveal: Statuse
+    socket.on('questionEnded', ({correct, soloAnswer})=>{
+      // Optionaler Banner – hier handled die Admin-Ansicht das Zurückspringen
+    });
+
+    // Allgemein
     socket.on('stats', ({alive,total,gamePhase,soloNumber})=>{
       document.getElementById('aliveCount').innerText=alive;
       document.getElementById('totalCount').innerText=total;
       setPhase(gamePhase); document.getElementById('soloNum').innerText = soloNumber ?? '–';
       document.getElementById('soloDisp').innerText = soloNumber ?? '–';
     });
-
     socket.on('updatePlayers', (players)=>{ ensureCells(players); });
     socket.on('phaseChanged', ({gamePhase})=>{
       setPhase(gamePhase);
