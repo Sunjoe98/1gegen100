@@ -1,0 +1,43 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>1 gegen 100 – Leinwand</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>1 gegen 100</h1>
+  <h2 id="questionText"></h2>
+  <div id="countdown" style="font-size:2em; margin:20px;"></div>
+  <p>Verbleibende Spieler: <span id="playerCount">0</span></p>
+
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script>
+    const socket = io('https://onegegen100-u6h7.onrender.com');
+    let countdownTimer;
+
+    socket.on('newQuestion', (q) => {
+      document.getElementById("questionText").innerText = q.text;
+      startCountdown(10);
+    });
+
+    socket.on('updatePlayers', (players) => {
+      const alive = players.filter(p => p.alive).length;
+      document.getElementById("playerCount").innerText = alive;
+    });
+
+    function startCountdown(seconds) {
+      clearInterval(countdownTimer);
+      let remaining = seconds;
+      document.getElementById("countdown").innerText = remaining;
+      countdownTimer = setInterval(() => {
+        remaining--;
+        document.getElementById("countdown").innerText = remaining;
+        if (remaining <= 0) clearInterval(countdownTimer);
+      }, 1000);
+    }
+  </script>
+</body>
+</html>

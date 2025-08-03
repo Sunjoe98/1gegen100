@@ -1,0 +1,56 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>1 gegen 100 – Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Admin-Panel</h1>
+  <p>Frage auswählen, starten und beenden.</p>
+
+  <select id="questionSelect"></select>
+  <button id="startBtn">Frage starten</button>
+  <button id="endBtn">Frage beenden</button>
+
+  <div class="player-list" id="players"></div>
+
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script>
+    const socket = io('https://onegegen100-u6h7.onrender.com');
+    let questions = [];
+
+    async function loadQuestions(){
+      const res = await fetch('https://onegegen100-u6h7.onrender.com/questions.json');
+      questions = await res.json();
+      const sel = document.getElementById('questionSelect');
+      sel.innerHTML = '';
+      questions.forEach((q, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = q.text + ' [' + q.answers.join(' / ') + ']';
+        sel.appendChild(opt);
+      });
+    }
+
+    socket.on('updatePlayers', (players)=>{
+      document.getElementById('players').innerHTML = players
+        .map(p => (p.alive ? '🟢 ' : '⚫ ') + p.name)
+        .join('<br>');
+    });
+
+    document.getElementById('startBtn').onclick = ()=>{
+      const idx = +document.getElementById('questionSelect').value;
+      socket.emit('startQuestion', questions[idx]);
+    };
+
+    document.getElementById('endBtn').onclick = ()=>{
+      socket.emit('endQuestion');
+    };
+
+    loadQuestions();
+  </script>
+</body>
+</html>

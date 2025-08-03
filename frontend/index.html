@@ -1,0 +1,46 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>1 gegen 100 - Spieler</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>1 gegen 100</h1>
+  <div id="join">
+    <input id="name" placeholder="Dein Name">
+    <button onclick="join()">Beitreten</button>
+  </div>
+  <div id="game" style="display:none;">
+    <h2 id="questionText"></h2>
+    <div id="answers"></div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script>
+    const socket = io('https://onegegen100-u6h7.onrender.com');
+    let playerName = "";
+
+    function join() {
+      playerName = document.getElementById("name").value;
+      socket.emit('joinGame', playerName);
+      document.getElementById("join").style.display = "none";
+      document.getElementById("game").style.display = "block";
+    }
+
+    socket.on('newQuestion', (q) => {
+      document.getElementById("questionText").innerText = q.text;
+      let ansHTML = "";
+      q.answers.forEach(a => {
+        ansHTML += `<button onclick="answer('${a}')">${a}</button><br>`;
+      });
+      document.getElementById("answers").innerHTML = ansHTML;
+    });
+
+    function answer(ans) {
+      socket.emit('answer', ans);
+    }
+  </script>
+</body>
+</html>
