@@ -14,6 +14,8 @@ let gameActive = false;
 app.use(cors());
 app.use(express.json());
 
+app.use(express.static(__dirname));
+
 app.get('/', (req, res) => {
   res.send('1 gegen 100 Backend läuft.');
 });
