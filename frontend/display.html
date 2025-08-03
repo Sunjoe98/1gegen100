@@ -1,6 +1,5 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
   <meta charset="utf-8">
   <title>1 gegen 100 – Leinwand</title>
@@ -9,7 +8,7 @@
 </head>
 <body>
   <h1>1 gegen 100</h1>
-  <h2 id="questionText"></h2>
+  <h2 id="questionText">Warten auf nächste Frage…</h2>
   <div id="countdown" style="font-size:2em; margin:20px;"></div>
   <p>Verbleibende Spieler: <span id="playerCount">0</span></p>
 
@@ -26,6 +25,10 @@
     socket.on('updatePlayers', (players) => {
       const alive = players.filter(p => p.alive).length;
       document.getElementById("playerCount").innerText = alive;
+    });
+
+    socket.on('questionEnded', ({ correct }) => {
+      // optional Anzeige der richtigen Antwort
     });
 
     function startCountdown(seconds) {
