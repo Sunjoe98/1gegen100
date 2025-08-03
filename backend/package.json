@@ -1,13 +1,15 @@
 {
   "name": "1gegen100-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "description": "Realtime-Backend für 1 gegen 100 (Socket.IO + Express)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "license": "MIT",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "socket.io": "^4.3.2"
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
   }
 }
