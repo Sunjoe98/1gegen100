@@ -3,150 +3,106 @@
 <head>
   <meta charset="utf-8">
   <title>1 gegen 100 – Spieler</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
     <h1>1 gegen 100</h1>
-
-    <!-- Join- / Zuschauer-Karte -->
     <div id="joinCard" class="card">
       <div class="row">
-        <input id="name" class="input grow" placeholder="Dein Name">
+        <input id="name" class="input" placeholder="Dein Name">
         <button id="joinBtn" class="btn">Beitreten</button>
       </div>
       <div class="footer">
-        <span id="statusBadge" class="badge">Status: <span id="statusText">Lobby</span></span>
         <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
+        <span class="badge">Phase: <span id="phaseText">Lobby</span></span>
       </div>
       <div id="spectator" class="card" style="margin-top:12px;">
-        <div class="footer">Live-Ansicht (Zuschauer):</div>
-        <div id="spectatorQuestion" class="center" style="font-size:18px;">Warten auf Frage…</div>
+        <div class="footer">Live:</div>
+        <div id="spectatorQuestion">Warten …</div>
       </div>
     </div>
 
-    <!-- Spiel-Karte -->
-    <div id="gameCard" class="card" style="display:none; margin-top:12px;">
+    <div id="gameCard" class="card" style="display:none;margin-top:12px;">
       <div class="footer">
-        Deine Nummer: <b><span id="myNumber">?</span></b>
-        &nbsp;·&nbsp; Im Spiel: <span id="aliveCount2">0</span>/<span id="totalCount2">0</span>
+        Deine Nummer: <b><span id="myNumber">?</span></b> ·
+        Im Spiel: <span id="aliveCount2">0</span>/<span id="totalCount2">0</span>
       </div>
+      <div id="mobTimer" class="timerBar" style="display:none;"><div id="mobFill" class="timerFill"></div></div>
       <h2 id="questionText">Warten auf nächste Frage…</h2>
       <div id="answers" class="answers"></div>
-      <hr class="hr">
-      <div id="hint" class="badge"></div>
+      <div id="hint" class="badge" style="margin-top:8px;"></div>
     </div>
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // anpassen
     const socket = io(SOCKET_URL);
-
-    const joinCard = document.getElementById('joinCard');
-    const gameCard = document.getElementById('gameCard');
-    const joinBtn  = document.getElementById('joinBtn');
 
     let locked = false;
 
-    function setStatus(text, type){
-      document.getElementById('statusText').innerText = text;
-      const badge = document.getElementById('statusBadge');
-      badge.classList.remove('ok','warn');
-      if(type==='ok') badge.classList.add('ok');
-      if(type==='warn') badge.classList.add('warn');
-    }
+    function setPhase(p){ document.getElementById('phaseText').innerText = p; }
 
-    // Zuschauer-Infos (immer sichtbar)
-    socket.on('displayQuestion', (q) => {
-      document.getElementById('spectatorQuestion').innerText = q.text;
-    });
-    socket.on('stats', ({alive,total,gameActive,registrationOpen}) => {
-      document.getElementById('aliveCount').innerText = alive;
-      document.getElementById('totalCount').innerText = total;
-      document.getElementById('aliveCount2').innerText = alive;
-      document.getElementById('totalCount2').innerText = total;
-
-      if(!registrationOpen && gameActive){
-        setStatus('Spiel läuft – keine Anmeldung möglich', 'warn');
-        joinBtn.disabled = true;
-      } else if (registrationOpen && !gameActive) {
-        setStatus('Lobby – Anmeldung möglich', 'ok');
-        joinBtn.disabled = false;
-      } else {
-        setStatus('Wartet auf nächste Phase', null);
-      }
-    });
-
-    // Join
-    joinBtn.onclick = () => {
+    document.getElementById('joinBtn').onclick = () => {
       const name = document.getElementById('name').value || 'Spieler';
       socket.emit('joinGame', name);
-      // Anzeige vorziehen – bei Rejection wird zurückgestellt
-      joinCard.style.display = 'none';
-      gameCard.style.display = 'block';
+      document.getElementById('joinCard').style.display='none';
+      document.getElementById('gameCard').style.display='block';
     };
 
-    socket.on('joinRejected', (msg) => {
-      alert(msg);
-      joinCard.style.display = 'block';
-      gameCard.style.display = 'none';
+    socket.on('youAre', ({ number }) => { document.getElementById('myNumber').innerText = number; });
+
+    socket.on('stats', ({alive,total,gamePhase}) => {
+      document.getElementById('aliveCount').innerText = alive; document.getElementById('totalCount').innerText = total;
+      document.getElementById('aliveCount2').innerText = alive; document.getElementById('totalCount2').innerText = total;
+      setPhase(gamePhase);
     });
 
-    // Eigene Nummer
-    socket.on('youAre', ({ number }) => {
-      document.getElementById('myNumber').innerText = number;
-    });
+    socket.on('displayQuestion', q => { document.getElementById('spectatorQuestion').innerText = q.text; });
 
-    // Spieler-UI
     socket.on('newQuestion', (q) => {
-      locked = false;
-      document.getElementById('questionText').innerText = q.text;
-      const answersEl = document.getElementById('answers');
-      const hint = document.getElementById('hint');
-      hint.textContent = '';
-      answersEl.innerHTML = '';
-
-      q.answers.forEach(a => {
-        const btn = document.createElement('button');
-        btn.className = 'btn choice';
-        btn.innerText = a;
-        btn.onclick = () => {
-          if (locked) return;
-          socket.emit('answer', a);
-          // Visual „aktive“ Auswahl, aber änderbar
-          [...answersEl.querySelectorAll('.choice')].forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          hint.textContent = 'Antwort aktuell: ' + a + ' (änderbar bis Stopp)';
+      locked=false;
+      document.getElementById('questionText').innerText=q.text;
+      const aEl=document.getElementById('answers'); const hint=document.getElementById('hint');
+      aEl.innerHTML=''; hint.textContent='';
+      q.answers.forEach(a=>{
+        const btn=document.createElement('button'); btn.className='btn choice'; btn.innerText=a;
+        btn.onclick=()=>{ if(locked) return; socket.emit('answer', a);
+          [...aEl.querySelectorAll('.choice')].forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+          hint.textContent='Antwort aktuell: '+a+' (10s)';
         };
-        answersEl.appendChild(btn);
+        aEl.appendChild(btn);
       });
     });
 
-    socket.on('answerAck', (ans) => {
-      const hint = document.getElementById('hint');
-      hint.textContent = 'Antwort aktuell: ' + ans + ' (änderbar bis Stopp)';
+    // Mob-Timer (10s)
+    let mobTimerHandle=null;
+    socket.on('mobTimerStart', ({seconds})=>{
+      const bar=document.getElementById('mobTimer'); const fill=document.getElementById('mobFill');
+      bar.style.display='block'; fill.style.width='0%';
+      const start=Date.now(), dur=seconds*1000;
+      mobTimerHandle=setInterval(()=>{
+        const p=Math.min(1,(Date.now()-start)/dur); fill.style.width=(p*100)+'%';
+        if(p>=1){ clearInterval(mobTimerHandle); }
+      }, 50);
+    });
+    socket.on('mobTimerEnd', ()=>{
+      if(mobTimerHandle) clearInterval(mobTimerHandle);
+      document.getElementById('mobTimer').style.display='none';
+      locked=true;
     });
 
-    socket.on('questionLocked', () => { locked = true; });
-
-    socket.on('questionEnded', ({correct}) => {
-      const hint = document.getElementById('hint');
-      hint.textContent = 'Richtig war: ' + correct;
+    socket.on('answerAck', ans => { document.getElementById('hint').textContent='Antwort aktuell: '+ans; });
+    socket.on('questionLocked', ()=>{ locked=true; });
+    socket.on('youAreOut', ()=>{
+      alert('Du bist ausgeschieden. Zuschaueransicht wird angezeigt.');
+      document.getElementById('joinCard').style.display='block';
+      document.getElementById('gameCard').style.display='none';
     });
 
-    // NEU: Du bist raus -> Seite in Zuschauer-Modus
-    socket.on('youAreOut', () => {
-      alert('Du bist ausgeschieden. Du bleibst Zuschauer, bis die Lobby wieder öffnet.');
-      joinCard.style.display = 'block';
-      gameCard.style.display = 'none';
-      // Join blockiert vom Backend solange Spiel läuft (stats-Event steuert Button)
-    });
-
-    // Registrierung Status (UI-Hinweis)
-    socket.on('registrationClosed', () => setStatus('Spiel läuft – keine Anmeldung möglich','warn'));
-    socket.on('registrationOpened', () => setStatus('Lobby – Anmeldung möglich','ok'));
+    socket.on('joinRejected', (msg)=>{ alert(msg); document.getElementById('joinCard').style.display='block'; document.getElementById('gameCard').style.display='none'; });
   </script>
 </body>
 </html>
