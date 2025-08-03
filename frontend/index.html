@@ -15,6 +15,7 @@
   </div>
 
   <div id="game" style="display:none;">
+    <div class="footer">Noch im Spiel: <span id="aliveCount">0</span> / <span id="totalCount">0</span></div>
     <h2 id="questionText">Warten auf nächste Frage…</h2>
     <div id="answers"></div>
     <div id="hint" class="badge"></div>
@@ -22,8 +23,10 @@
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
-    const socket = io('https://onegegen100-u6h7.onrender.com');
+    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
+    const socket = io(SOCKET_URL);
 
+    let currentAnswers = [];
     let locked = false;
 
     function join() {
@@ -35,23 +38,18 @@
 
     socket.on('joinRejected', (msg) => {
       alert(msg);
-      // zurück zur Join-Ansicht
       document.getElementById("join").style.display = "block";
       document.getElementById("game").style.display = "none";
     });
 
-    socket.on('registrationClosed', () => {
-      const hint = document.getElementById('hint');
-      hint.textContent = 'Registrierung geschlossen – Spiel läuft';
-    });
-
-    socket.on('registrationOpened', () => {
-      const hint = document.getElementById('hint');
-      hint.textContent = 'Registrierung offen';
+    socket.on('stats', ({alive,total}) => {
+      document.getElementById('aliveCount').innerText = alive;
+      document.getElementById('totalCount').innerText = total;
     });
 
     socket.on('newQuestion', (q) => {
       locked = false;
+      currentAnswers = q.answers.slice();
       const qEl = document.getElementById("questionText");
       const aEl = document.getElementById("answers");
       const hint = document.getElementById('hint');
@@ -60,29 +58,33 @@
       qEl.innerText = q.text;
       aEl.innerHTML = '';
 
-      q.answers.forEach(a => {
+      currentAnswers.forEach(a => {
         const btn = document.createElement('button');
         btn.innerText = a;
         btn.onclick = () => {
           if (locked) return;
-          locked = true;
           socket.emit('answer', a);
-          // visual lock + mark
-          [...aEl.querySelectorAll('button')].forEach(b => { b.disabled = true; b.style.opacity = 0.6; });
-          btn.disabled = false;
-          btn.style.opacity = 1;
+          // Buttons aktiv lassen, aber aktuell gewählte visuell hervorheben
+          [...aEl.querySelectorAll('button')].forEach(b => { b.style.outline = 'none'; b.style.opacity = 1; });
           btn.style.outline = '3px solid #333';
-          hint.textContent = 'Antwort gespeichert: ' + a;
+          btn.style.opacity = 1;
+          hint.textContent = 'Antwort aktuell: ' + a + ' (änderbar bis Stopp)';
         };
         aEl.appendChild(btn);
       });
     });
 
     socket.on('answerAck', (ans) => {
-      // optional zusätzlicher Hinweis; bereits markiert
+      // bestärkende Rückmeldung – Auswahl bleibt änderbar bis questionLocked
+      const hint = document.getElementById('hint');
+      hint.textContent = 'Antwort aktuell: ' + ans + ' (änderbar bis Stopp)';
     });
 
-    socket.on('questionEnded', ({ correct }) => {
+    socket.on('questionLocked', ({correct}) => {
+      locked = true; // ab jetzt keine Änderung mehr
+    });
+
+    socket.on('questionEnded', ({correct}) => {
       const hint = document.getElementById('hint');
       hint.textContent = 'Richtig war: ' + correct;
     });
