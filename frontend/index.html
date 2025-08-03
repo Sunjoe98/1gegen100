@@ -7,21 +7,36 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>1 gegen 100</h1>
+  <div class="container">
+    <h1>1 gegen 100</h1>
 
-  <div id="join">
-    <input id="name" placeholder="Dein Name">
-    <button onclick="join()">Beitreten</button>
-  </div>
-
-  <div id="game" style="display:none;">
-    <div class="footer">
-      Deine Nummer: <b><span id="myNumber">?</span></b> ·
-      Noch im Spiel: <span id="aliveCount">0</span> / <span id="totalCount">0</span>
+    <!-- Join- / Zuschauer-Karte -->
+    <div id="joinCard" class="card">
+      <div class="row">
+        <input id="name" class="input grow" placeholder="Dein Name">
+        <button id="joinBtn" class="btn">Beitreten</button>
+      </div>
+      <div class="footer">
+        <span id="statusBadge" class="badge">Status: <span id="statusText">Lobby</span></span>
+        <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
+      </div>
+      <div id="spectator" class="card" style="margin-top:12px;">
+        <div class="footer">Live-Ansicht (Zuschauer):</div>
+        <div id="spectatorQuestion" class="center" style="font-size:18px;">Warten auf Frage…</div>
+      </div>
     </div>
-    <h2 id="questionText">Warten auf nächste Frage…</h2>
-    <div id="answers"></div>
-    <div id="hint" class="badge"></div>
+
+    <!-- Spiel-Karte -->
+    <div id="gameCard" class="card" style="display:none; margin-top:12px;">
+      <div class="footer">
+        Deine Nummer: <b><span id="myNumber">?</span></b>
+        &nbsp;·&nbsp; Im Spiel: <span id="aliveCount2">0</span>/<span id="totalCount2">0</span>
+      </div>
+      <h2 id="questionText">Warten auf nächste Frage…</h2>
+      <div id="answers" class="answers"></div>
+      <hr class="hr">
+      <div id="hint" class="badge"></div>
+    </div>
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
@@ -29,53 +44,83 @@
     const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
     const socket = io(SOCKET_URL);
 
+    const joinCard = document.getElementById('joinCard');
+    const gameCard = document.getElementById('gameCard');
+    const joinBtn  = document.getElementById('joinBtn');
+
     let locked = false;
 
-    function join() {
-      const name = document.getElementById("name").value || 'Spieler';
-      socket.emit('joinGame', name);
-      document.getElementById("join").style.display = "none";
-      document.getElementById("game").style.display = "block";
+    function setStatus(text, type){
+      document.getElementById('statusText').innerText = text;
+      const badge = document.getElementById('statusBadge');
+      badge.classList.remove('ok','warn');
+      if(type==='ok') badge.classList.add('ok');
+      if(type==='warn') badge.classList.add('warn');
     }
 
-    // Eigene Nummer anzeigen
+    // Zuschauer-Infos (immer sichtbar)
+    socket.on('displayQuestion', (q) => {
+      document.getElementById('spectatorQuestion').innerText = q.text;
+    });
+    socket.on('stats', ({alive,total,gameActive,registrationOpen}) => {
+      document.getElementById('aliveCount').innerText = alive;
+      document.getElementById('totalCount').innerText = total;
+      document.getElementById('aliveCount2').innerText = alive;
+      document.getElementById('totalCount2').innerText = total;
+
+      if(!registrationOpen && gameActive){
+        setStatus('Spiel läuft – keine Anmeldung möglich', 'warn');
+        joinBtn.disabled = true;
+      } else if (registrationOpen && !gameActive) {
+        setStatus('Lobby – Anmeldung möglich', 'ok');
+        joinBtn.disabled = false;
+      } else {
+        setStatus('Wartet auf nächste Phase', null);
+      }
+    });
+
+    // Join
+    joinBtn.onclick = () => {
+      const name = document.getElementById('name').value || 'Spieler';
+      socket.emit('joinGame', name);
+      // Anzeige vorziehen – bei Rejection wird zurückgestellt
+      joinCard.style.display = 'none';
+      gameCard.style.display = 'block';
+    };
+
+    socket.on('joinRejected', (msg) => {
+      alert(msg);
+      joinCard.style.display = 'block';
+      gameCard.style.display = 'none';
+    });
+
+    // Eigene Nummer
     socket.on('youAre', ({ number }) => {
       document.getElementById('myNumber').innerText = number;
     });
 
-    socket.on('joinRejected', (msg) => {
-      alert(msg);
-      document.getElementById("join").style.display = "block";
-      document.getElementById("game").style.display = "none";
-    });
-
-    socket.on('stats', ({alive,total}) => {
-      document.getElementById('aliveCount').innerText = alive;
-      document.getElementById('totalCount').innerText = total;
-    });
-
+    // Spieler-UI
     socket.on('newQuestion', (q) => {
       locked = false;
-      const qEl = document.getElementById("questionText");
-      const aEl = document.getElementById("answers");
+      document.getElementById('questionText').innerText = q.text;
+      const answersEl = document.getElementById('answers');
       const hint = document.getElementById('hint');
-
       hint.textContent = '';
-      qEl.innerText = q.text;
-      aEl.innerHTML = '';
+      answersEl.innerHTML = '';
 
       q.answers.forEach(a => {
         const btn = document.createElement('button');
+        btn.className = 'btn choice';
         btn.innerText = a;
         btn.onclick = () => {
           if (locked) return;
           socket.emit('answer', a);
-          // Auswahl visuell hervorheben, aber Buttons aktiv lassen
-          [...aEl.querySelectorAll('button')].forEach(b => { b.style.outline = 'none'; b.style.opacity = 1; });
-          btn.style.outline = '3px solid #333';
+          // Visual „aktive“ Auswahl, aber änderbar
+          [...answersEl.querySelectorAll('.choice')].forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
           hint.textContent = 'Antwort aktuell: ' + a + ' (änderbar bis Stopp)';
         };
-        aEl.appendChild(btn);
+        answersEl.appendChild(btn);
       });
     });
 
@@ -90,6 +135,18 @@
       const hint = document.getElementById('hint');
       hint.textContent = 'Richtig war: ' + correct;
     });
+
+    // NEU: Du bist raus -> Seite in Zuschauer-Modus
+    socket.on('youAreOut', () => {
+      alert('Du bist ausgeschieden. Du bleibst Zuschauer, bis die Lobby wieder öffnet.');
+      joinCard.style.display = 'block';
+      gameCard.style.display = 'none';
+      // Join blockiert vom Backend solange Spiel läuft (stats-Event steuert Button)
+    });
+
+    // Registrierung Status (UI-Hinweis)
+    socket.on('registrationClosed', () => setStatus('Spiel läuft – keine Anmeldung möglich','warn'));
+    socket.on('registrationOpened', () => setStatus('Lobby – Anmeldung möglich','ok'));
   </script>
 </body>
 </html>
