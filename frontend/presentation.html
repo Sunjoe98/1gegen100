@@ -16,57 +16,44 @@
     const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com';
     const socket = io(SOCKET_URL);
 
-    let cells = new Map(); // number -> div.cell
-    let knownNumbers = new Set();
+    let cells = new Map();   // number -> div.cell
+    let known = new Set();
 
     function ensureCells(players) {
-      // Baue ein Grid aller bekannten Nummern (stabil)
-      const container = document.getElementById('grid');
-      const numbers = players.map(p => p.number).sort((a,b)=>a-b);
-      numbers.forEach(num => {
-        if (!knownNumbers.has(num)) {
+      const grid = document.getElementById('grid');
+      const nums = players.map(p => p.number).sort((a,b)=>a-b);
+      nums.forEach(n => {
+        if (!known.has(n)) {
           const d = document.createElement('div');
           d.className = 'cell alive';
-          d.textContent = num;
-          container.appendChild(d);
-          cells.set(num, d);
-          knownNumbers.add(num);
+          d.textContent = n;
+          grid.appendChild(d);
+          cells.set(n, d);
+          known.add(n);
         }
       });
-      // Status setzen
       players.forEach(p => {
         const c = cells.get(p.number);
         if (!c) return;
-        c.classList.remove('alive','dead','elim');
-        c.classList.add(p.alive ? 'alive' : 'dead');
+        c.classList.remove('alive','dead','elim','out');
+        c.classList.add(p.alive ? 'alive' : 'out'); // ausgeschiedene permanent rot
       });
     }
 
-    function animateElimination(sequence) {
-      // sequence: Array von Nummern, unregelmäßig & zügig bei vielen
-      if (!sequence || !sequence.length) return;
-      const n = sequence.length;
-      let i = 0;
+    function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-      const step = () => {
-        if (i >= n) return;
-        const num = sequence[i++];
-        const cell = cells.get(num);
-        if (cell) {
-          cell.classList.remove('alive');
-          cell.classList.add('elim');
-          setTimeout(() => {
-            cell.classList.remove('elim');
-            cell.classList.add('dead');
-          }, 250);
-        }
-        // Timing: bei vielen schneller
-        const remaining = n - i;
-        const base = n > 50 ? 40 : n > 20 ? 90 : 140;
-        const jitter = Math.random() * (n > 50 ? 30 : 100);
-        setTimeout(step, Math.max(20, base - Math.min(remaining, 50)) + jitter);
-      };
-      step();
+    // Strikt nacheinander: elim (puls) -> out (permanent rot)
+    async function animateEliminationSequential(numbers) {
+      for (const num of numbers) {
+        const c = cells.get(num);
+        if (!c) continue;
+        c.classList.remove('alive','dead','out');
+        c.classList.add('elim');      // kurz rot-puls
+        await wait(450);
+        c.classList.remove('elim');
+        c.classList.add('out');       // permanent rot
+        await wait(120);              // kleine Pause bis zum nächsten
+      }
     }
 
     socket.on('stats', ({alive,total}) => {
@@ -76,23 +63,18 @@
 
     socket.on('updatePlayers', (players) => {
       ensureCells(players);
-      // Alive/Dead Status aktualisieren (ohne Animation)
       players.forEach(p => {
         const c = cells.get(p.number);
         if (!c) return;
-        if (p.alive) {
-          c.classList.remove('dead','elim');
-          c.classList.add('alive');
-        } else {
-          c.classList.remove('alive','elim');
-          c.classList.add('dead');
+        if (!c.classList.contains('elim')) { // laufende Anim. nicht überschreiben
+          c.classList.remove('alive','dead','out');
+          c.classList.add(p.alive ? 'alive' : 'out');
         }
       });
     });
 
-    socket.on('eliminationSequence', ({ eliminatedNumbers }) => {
-      // animierte Elimination
-      animateElimination(eliminatedNumbers);
+    socket.on('eliminationSequence', async ({ eliminatedNumbers }) => {
+      await animateEliminationSequential(eliminatedNumbers);
     });
   </script>
 </body>
