@@ -39,6 +39,7 @@ let askedIds = new Set();
 let offeredTopics = [];        // aktuell angebotene 2 Themen
 let chosenTopic = null;        // vom Solo gewähltes Thema
 let mobAnsweringOpen = false;  // 10s Fenster für Mob
+let mobTimerHandle = null;     // Timeout-Handle für Mob-Fenster
 let soloAnswer = null;         // vom Admin gespeicherte Solo-Antwort
 
 // ---- Helpers
@@ -91,11 +92,59 @@ function stats() {
     gamePhase, soloNumber, chosenTopic
   };
 }
-function broadcastStats() { io.emit('stats', stats()); }
+function broadcastStats(target = io) { target.emit('stats', stats()); }
 function publicPlayers() {
   return players.map(p => ({ number: p.number, alive: p.alive, lastAnswer: p.lastAnswer }));
 }
-function emitPlayers() { io.emit('updatePlayers', publicPlayers()); }
+function emitPlayers(target = io) { target.emit('updatePlayers', publicPlayers()); }
+
+function resetMobTimer() {
+  mobAnsweringOpen = false;
+  if (mobTimerHandle) {
+    clearTimeout(mobTimerHandle);
+    mobTimerHandle = null;
+  }
+}
+
+function resetRoundState() {
+  resetMobTimer();
+  offeredTopics = [];
+  chosenTopic = null;
+  currentQuestion = null;
+  soloAnswer = null;
+}
+
+function setPhase(phase) {
+  gamePhase = phase;
+  io.emit('phaseChanged', { gamePhase });
+}
+
+function currentQuestionPayload() {
+  if (!currentQuestion) return null;
+  return {
+    id: currentQuestion.id,
+    topic: currentQuestion.topic,
+    text: currentQuestion.text,
+    answers: currentQuestion.answers
+  };
+}
+
+function syncSocket(socket) {
+  broadcastStats(socket);
+  emitPlayers(socket);
+  socket.emit('phaseChanged', { gamePhase });
+  if (soloNumber != null) socket.emit('soloSet', { soloNumber });
+  if (offeredTopics.length) socket.emit('topicOffered', { options: offeredTopics });
+  if (chosenTopic) socket.emit('topicChosen', { chosenTopic });
+  const payload = currentQuestionPayload();
+  if (payload) {
+    socket.emit('displayQuestion', payload);
+    if (soloAnswer) {
+      const index = currentQuestion.answers.findIndex(a => a === soloAnswer);
+      if (index >= 0) socket.emit('soloAnswerSet', { index, answer: soloAnswer });
+    }
+  }
+}
 
 // ---- HTTP
 app.get('/', (_,res)=>res.send('1 gegen 100 Backend läuft (Themenmodus).'));
@@ -103,6 +152,8 @@ app.get('/', (_,res)=>res.send('1 gegen 100 Backend läuft (Themenmodus).'));
 // ---- Sockets
 io.on('connection', (socket) => {
   const sid = socket.id;
+
+  syncSocket(socket);
 
   // Spieler beitreten
   socket.on('joinGame', (name) => {
@@ -115,7 +166,7 @@ io.on('connection', (socket) => {
 
     const player = {
       sid,
-      name: String(name || 'Spieler'),
+      name: String(name || 'Spieler').trim().slice(0, 32) || 'Spieler',
       number: nextPlayerNumber++,
       alive: true,
       lastAnswer: null
@@ -123,6 +174,10 @@ io.on('connection', (socket) => {
     players.push(player);
     socket.join('alive');
     socket.emit('youAre', { number: player.number });
+    if (currentQuestion) {
+      socket.emit('newQuestion', currentQuestionPayload());
+      if (!mobAnsweringOpen) socket.emit('questionLocked');
+    }
 
     emitPlayers(); broadcastStats();
   });
@@ -139,29 +194,26 @@ io.on('connection', (socket) => {
   // Admin: Registrierung schließen / öffnen
   socket.on('startGame', () => {
     registrationOpen = false;
-    gamePhase = 'topicOffer';
-    offeredTopics = []; chosenTopic = null; currentQuestion = null; soloAnswer = null;
+    resetRoundState();
     io.emit('registrationClosed');
-    io.emit('phaseChanged', { gamePhase });
+    setPhase('topicOffer');
     broadcastStats();
   });
   socket.on('openRegistration', () => {
     registrationOpen = true;
-    gamePhase = 'lobby';
-    offeredTopics = []; chosenTopic = null; currentQuestion = null; soloAnswer = null;
+    resetRoundState();
     io.emit('registrationOpened');
-    io.emit('phaseChanged', { gamePhase });
+    setPhase('lobby');
     broadcastStats();
   });
 
   // Admin: zwei zufällige Themen anbieten
   socket.on('offerTopics', () => {
-    if (gamePhase!=='topicOffer') gamePhase='topicOffer';
+    if (gamePhase!=='topicOffer') setPhase('topicOffer');
     const shuffled = TOPICS.slice().sort(()=>Math.random()-0.5);
     offeredTopics = shuffled.slice(0,2);
     chosenTopic = null;
     io.emit('topicOffered', { options: offeredTopics });
-    io.emit('phaseChanged', { gamePhase });
     broadcastStats();
   });
 
@@ -180,26 +232,28 @@ io.on('connection', (socket) => {
     if (!q) { io.emit('noQuestionsLeftForTopic', { topic: chosenTopic }); return; }
 
     currentQuestion = q;
-    gamePhase = 'question';
     soloAnswer = null;
+    setPhase('question');
+    resetMobTimer();
 
     // Reset Antworten nur für Lebende
     players.forEach(p => { if (p.alive) p.lastAnswer = null; });
 
     emitPlayers();
-    const payload = { id: q.id, topic: q.topic, text: q.text, answers: q.answers };
+    const payload = currentQuestionPayload();
     io.emit('displayQuestion', payload);
     io.to('alive').emit('newQuestion', payload);
 
     // Mob-10s Fenster öffnen
     mobAnsweringOpen = true;
     io.emit('mobTimerStart', { seconds: 10 });
-    setTimeout(() => {
+    mobTimerHandle = setTimeout(() => {
       mobAnsweringOpen = false;
+      mobTimerHandle = null;
       io.emit('mobTimerEnd');
+      io.emit('questionLocked');
     }, 10000);
 
-    io.emit('phaseChanged', { gamePhase });
     broadcastStats();
   });
 
@@ -251,10 +305,9 @@ io.on('connection', (socket) => {
       io.to(sid).emit('youAreOut');
     });
 
-    gamePhase = 'show';
+    setPhase('show');
     const order = eliminated.map(e => e.number).sort(()=>Math.random()-0.5);
     io.emit('eliminationSequence', { eliminatedNumbers: order }); // korrekt bleibt geheim
-    io.emit('phaseChanged', { gamePhase });
     emitPlayers(); broadcastStats();
   });
 
@@ -267,24 +320,27 @@ io.on('connection', (socket) => {
   // Admin: Zurück zur Frageansicht mit Ergebnisbanner
   socket.on('backToQuestionView', () => {
     if (!currentQuestion) return;
-    gamePhase = 'reveal';
+    setPhase('reveal');
     io.emit('questionEnded', { correct: currentQuestion.correct, soloAnswer });
-    io.emit('phaseChanged', { gamePhase });
     broadcastStats();
   });
 
   // Admin: Nächste Themenrunde (zurück zur Auswahl)
   socket.on('nextRound', () => {
-    currentQuestion = null; chosenTopic = null; offeredTopics = []; soloAnswer = null;
-    gamePhase = 'topicOffer';
-    io.emit('phaseChanged', { gamePhase });
+    resetRoundState();
+    setPhase('topicOffer');
     broadcastStats();
   });
 
   // Disconnect
   socket.on('disconnect', () => {
+    const leavingPlayer = players.find(p=>p.sid===sid);
     const before = players.length;
     players = players.filter(p=>p.sid!==sid);
+    if (leavingPlayer && leavingPlayer.number === soloNumber) {
+      soloNumber = null;
+      io.emit('soloSet', { soloNumber });
+    }
     if (players.length !== before) { emitPlayers(); broadcastStats(); }
   });
 });

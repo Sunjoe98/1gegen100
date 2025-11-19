@@ -42,9 +42,9 @@
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script src="socket-config.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
-    const socket = io(SOCKET_URL);
+    const socket = createSocket();
 
     let cells = new Map(); let known = new Set();
     let revealInProgress = false; let revealingSet = new Set();
