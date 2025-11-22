@@ -45,6 +45,134 @@ Das Backend bildet den bekannten „1 gegen 100“-Ablauf für Mobilgeräte nach
 
 Die folgende Schritt-für-Schritt-Anleitung führt dich von einer leeren VirtualBox-Installation bis zum laufenden Spiel innerhalb einer Ubuntu-24.04-VM.
 
+## Online-Betrieb auf Ubuntu-vServer mit `api.1gegedrsaal.ch` (Backend) und `spiel.1gegedrsaal.ch` (Frontend)
+
+Die folgenden Schritte richten sich an einen nackten Ubuntu-Server (Root-Zugriff, kein Plesk). Ziel: Das Backend läuft als Node.js-Dienst unter `https://api.1gegedrsaal.ch`, das Frontend wird statisch über `https://spiel.1gegedrsaal.ch` ausgeliefert – die HTML-Dateien verweisen per Meta-Tag bereits auf das Backend.
+
+### 1) DNS vorbereiten
+1. Trage im DNS zwei **A-Records** ein, die auf die öffentliche IP deines Servers zeigen:
+   - `api.1gegedrsaal.ch` → `<Server-IP>`
+   - `spiel.1gegedrsaal.ch` → `<Server-IP>`
+2. Optional: Ein zusätzliches `@`/Root- oder `www`-Record, falls du die Hauptdomain brauchst.
+
+### 2) Server-Grundlage
+1. SSH auf den Server: `ssh user@<Server-IP>`
+2. Aktualisieren:
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   ```
+3. Tools installieren:
+   ```bash
+   sudo apt install -y curl git nginx certbot python3-certbot-nginx
+   ```
+
+### 3) Node.js 20 LTS installieren
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v && npm -v
+```
+
+### 4) Code ausrollen
+```bash
+sudo mkdir -p /srv/1gegen100
+sudo chown $USER:$USER /srv/1gegen100
+cd /srv/1gegen100
+git clone <dein-git-url> .
+```
+
+### 5) Backend-Abhängigkeiten
+```bash
+cd /srv/1gegen100/backend
+npm install --production
+```
+
+### 6) systemd-Service für das Backend
+Erstelle `/etc/systemd/system/1gegen100.service`:
+```ini
+[Unit]
+Description=1gegen100 Backend (Socket.IO)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/1gegen100/backend
+Environment="PORT=3000"
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
+```
+Aktivieren und starten:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now 1gegen100.service
+systemctl status 1gegen100.service
+```
+
+### 7) Nginx-Setup (Backend-Reverse-Proxy + Frontend-Hosting)
+1. **Backend-Proxy** (`/etc/nginx/sites-available/api.1gegedrsaal.ch`):
+   ```nginx
+   server {
+     listen 80;
+     server_name api.1gegedrsaal.ch;
+
+     location / {
+       proxy_pass http://127.0.0.1:3000;
+       proxy_set_header Host $host;
+       proxy_set_header X-Real-IP $remote_addr;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_http_version 1.1;
+       proxy_set_header Upgrade $http_upgrade;
+       proxy_set_header Connection "upgrade";
+     }
+   }
+   ```
+
+2. **Frontend-Hosting** (`/etc/nginx/sites-available/spiel.1gegedrsaal.ch`):
+   ```nginx
+   server {
+     listen 80;
+     server_name spiel.1gegedrsaal.ch;
+
+     root /var/www/1gegen100;
+     index index.html;
+     location / {
+       try_files $uri $uri/ =404;
+     }
+   }
+   ```
+
+3. Sites aktivieren und testen:
+   ```bash
+   sudo mkdir -p /var/www/1gegen100
+   sudo ln -s /etc/nginx/sites-available/api.1gegedrsaal.ch /etc/nginx/sites-enabled/
+   sudo ln -s /etc/nginx/sites-available/spiel.1gegedrsaal.ch /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+### 8) Frontend-Dateien bereitstellen
+```bash
+sudo cp -r /srv/1gegen100/frontend/* /var/www/1gegen100/
+sudo chown -R www-data:www-data /var/www/1gegen100
+```
+Alle HTML-Seiten enthalten bereits `<meta name="socket-url" content="https://api.1gegedrsaal.ch">`, sodass sie den richtigen Socket-Endpunkt nutzen. Falls du eine andere Domain/Port einsetzen willst, passe den Meta-Tag oder setze `window.__SOCKET_URL__` vor `socket-config.js`.
+
+### 9) TLS aktivieren
+```bash
+sudo certbot --nginx -d api.1gegedrsaal.ch -d spiel.1gegedrsaal.ch
+sudo systemctl reload nginx
+```
+Certbot schreibt die HTTPS-Serverblöcke automatisch um; WebSocket-Header bleiben bestehen.
+
+### 10) Funktionstest
+- Backend-Health: `curl -I https://api.1gegedrsaal.ch/` (Status 200/301 erwartet).
+- Frontend aufrufen: `https://spiel.1gegedrsaal.ch/presentation.html` oder `index.html` (Spieler). Die Seiten verbinden sich sofort mit `api.1gegedrsaal.ch`.
+- Falls du alles auf einer Domain testen willst, kannst du vorübergehend direkt `https://api.1gegedrsaal.ch/presentation.html` nutzen – das Backend dient die Frontend-Dateien ebenfalls aus.
+
 ### 1) Vorbereitung: Ubuntu-ISO besorgen
 1. Lade das aktuelle Ubuntu Desktop 24.04 ISO herunter: <https://ubuntu.com/download/desktop>.
 2. Merke dir den Speicherort der ISO auf deinem Hostsystem (z. B. `~/Downloads/ubuntu-24.04-desktop-amd64.iso`).
