@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>1 gegen 100 – Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="socket-url" content="https://api.1gegedrsaal.ch">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,6 +16,8 @@
         <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
         <span class="badge">Phase: <span id="phaseText">lobby</span></span>
         <span class="badge">Solo: <span id="soloNum">–</span></span>
+        <span class="badge">Konto: <span id="bank">0</span> (Δ <span id="gain">0</span>)</span>
+        <span class="badge">Joker: <span id="jokerInfo">bereit</span></span>
       </div>
       <div class="row" style="margin-top:8px;">
         <input id="soloInput" class="input" style="width:140px" placeholder="Solo-Nummer">
@@ -33,9 +36,18 @@
       <div id="topicsInfo" class="footer">–</div>
 
       <div class="hr"></div>
+      <h2>Joker</h2>
+      <div class="row">
+        <button id="buyAnswerBtn" class="btn secondary">Antwort kaufen (Bank halbiert)</button>
+        <button id="doubleJokerBtn" class="btn secondary">Doppel-Joker für diese Frage</button>
+      </div>
+      <div id="jokerHint" class="footer">Noch nicht genutzt.</div>
+
+      <div class="hr"></div>
 
       <h2>Frage</h2>
       <div id="qText" class="footer">–</div>
+      <div id="soloTimer" class="footer">Solo-Lock-In: –</div>
       <div class="row">
         <button id="soloA1" class="btn secondary" disabled>Solo-Antwort A</button>
         <button id="soloA2" class="btn secondary" disabled>Solo-Antwort B</button>
@@ -51,9 +63,9 @@
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script src="socket-config.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
-    const socket = io(SOCKET_URL);
+    const socket = createSocket();
 
     const setPhase = p => document.getElementById('phaseText').innerText = p;
 
@@ -67,6 +79,9 @@
 
     document.getElementById('offerBtn').onclick = ()=> socket.emit('offerTopics');
     document.getElementById('confirmTopicBtn').onclick = ()=> socket.emit('startQuestionWithTopic');
+
+    document.getElementById('buyAnswerBtn').onclick = ()=> socket.emit('useBuyAnswer');
+    document.getElementById('doubleJokerBtn').onclick = ()=> socket.emit('activateDoubleJoker');
 
     document.getElementById('revealBtn').onclick = ()=> socket.emit('revealAndEliminate');
     document.getElementById('showCorrectBtn').onclick = ()=> socket.emit('revealCorrect');
@@ -100,6 +115,20 @@
       const ti = document.getElementById('topicsInfo');
       if (chosenTopic) ti.textContent = 'Gewähltes Thema: '+chosenTopic;
     });
+    socket.on('bankUpdate', ({prizePool,lastGain})=>{
+      document.getElementById('bank').innerText = prizePool;
+      document.getElementById('gain').innerText = lastGain;
+    });
+    socket.on('jokerUpdate', ({buyUsed,doubleUsed,doubleActive})=>{
+      const info = [];
+      if (doubleActive) info.push('Doppel-Joker aktiv');
+      if (doubleUsed && !doubleActive) info.push('Doppel-Joker verbraucht');
+      if (buyUsed) info.push('Antwort kaufen genutzt');
+      document.getElementById('jokerInfo').innerText = info.join(' · ') || 'bereit';
+      document.getElementById('doubleJokerBtn').disabled = doubleUsed;
+      document.getElementById('buyAnswerBtn').disabled = buyUsed;
+      document.getElementById('jokerHint').textContent = info.join(' · ') || 'Noch nicht genutzt.';
+    });
     socket.on('soloSet', ({soloNumber})=>{
       document.getElementById('soloNum').innerText = soloNumber ?? '–';
     });
@@ -119,6 +148,23 @@
         b.disabled = false;
         b.classList.remove('active');
       });
+      document.getElementById('soloTimer').textContent = 'Solo-Lock-In: läuft…';
+    });
+
+    let soloTimerTicker = null;
+    socket.on('soloTimerStart', ({seconds})=>{
+      if (soloTimerTicker) clearInterval(soloTimerTicker);
+      const target = Date.now() + seconds*1000;
+      soloTimerTicker = setInterval(()=>{
+        const left = Math.max(0, Math.ceil((target - Date.now())/1000));
+        document.getElementById('soloTimer').textContent = `Solo-Lock-In: ${left}s`;
+        if (left<=0) { clearInterval(soloTimerTicker); soloTimerTicker=null; }
+      }, 250);
+    });
+    socket.on('soloTimerEnd', ()=>{
+      if (soloTimerTicker) clearInterval(soloTimerTicker);
+      soloTimerTicker=null;
+      document.getElementById('soloTimer').textContent = 'Solo-Lock-In: beendet';
     });
 
     socket.on('updatePlayers', (players)=>{

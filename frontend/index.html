@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>1 gegen 100 – Spieler</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="socket-url" content="https://api.1gegedrsaal.ch">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -18,6 +19,7 @@
       <div class="footer">
         <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
         <span class="badge">Phase: <span id="phaseText">Lobby</span></span>
+        <span class="badge">Konto: <span id="bank">0</span></span>
       </div>
       <div id="spectator" class="card" style="margin-top:12px;">
         <div class="footer">Live:</div>
@@ -34,15 +36,18 @@
       <h2 id="questionText">Warten auf nächste Frage…</h2>
       <div id="answers" class="answers"></div>
       <div id="hint" class="badge" style="margin-top:8px;"></div>
+      <div id="jokerHint" class="footer"></div>
     </div>
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script src="socket-config.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
-    const socket = io(SOCKET_URL);
+    const socket = createSocket();
 
     let locked = false;
+    let mobTimerSeconds = 0;
+    let disabledAnswers = new Set();
     function setPhase(p){ document.getElementById('phaseText').innerText = p; }
 
     document.getElementById('joinBtn').onclick = () => {
@@ -54,24 +59,30 @@
 
     socket.on('youAre', ({ number }) => { document.getElementById('myNumber').innerText = number; });
 
-    socket.on('stats', ({alive,total,gamePhase}) => {
+    socket.on('stats', ({alive,total,gamePhase,prizePool}) => {
       document.getElementById('aliveCount').innerText = alive; document.getElementById('totalCount').innerText = total;
       document.getElementById('aliveCount2').innerText = alive; document.getElementById('totalCount2').innerText = total;
       setPhase(gamePhase);
+      if (prizePool!=null) document.getElementById('bank').innerText = prizePool;
     });
 
     socket.on('displayQuestion', q => { document.getElementById('spectatorQuestion').innerText = q.text; });
+    socket.on('bankUpdate', ({prizePool})=>{
+      if (prizePool!=null) document.getElementById('bank').innerText = prizePool;
+    });
 
     socket.on('newQuestion', (q) => {
       locked=false;
+      disabledAnswers = new Set();
       document.getElementById('questionText').innerText=q.text;
       const aEl=document.getElementById('answers'); const hint=document.getElementById('hint');
-      aEl.innerHTML=''; hint.textContent='';
+      aEl.innerHTML=''; hint.textContent=''; document.getElementById('jokerHint').textContent='';
       q.answers.forEach(a=>{
         const btn=document.createElement('button'); btn.className='btn choice'; btn.innerText=a;
-        btn.onclick=()=>{ if(locked) return; socket.emit('answer', a);
+        btn.dataset.idx = String(q.answers.indexOf(a));
+        btn.onclick=()=>{ if(locked || btn.classList.contains('disabled')) return; socket.emit('answer', a);
           [...aEl.querySelectorAll('.choice')].forEach(b=>b.classList.remove('active')); btn.classList.add('active');
-          hint.textContent='Antwort aktuell: '+a+' (10s)';
+          hint.textContent=`Antwort aktuell: ${a} (${mobTimerSeconds||''}s)`;
         };
         aEl.appendChild(btn);
       });
@@ -80,6 +91,7 @@
     // Mob-Timer (10s)
     let mobTimerHandle=null;
     socket.on('mobTimerStart', ({seconds})=>{
+      mobTimerSeconds = seconds;
       const bar=document.getElementById('mobTimer'); const fill=document.getElementById('mobFill');
       bar.style.display='block'; fill.style.width='0%';
       const start=Date.now(), dur=seconds*1000;
@@ -96,6 +108,14 @@
 
     socket.on('answerAck', ans => { document.getElementById('hint').textContent='Antwort aktuell: '+ans; });
     socket.on('questionLocked', ()=>{ locked=true; });
+    socket.on('eliminatedAnswers', ({indices})=>{
+      disabledAnswers = new Set(indices);
+      document.getElementById('jokerHint').textContent = 'Eine falsche Antwort wurde entfernt.';
+      [...document.getElementById('answers').querySelectorAll('.choice')].forEach(btn=>{
+        const idx = Number(btn.dataset.idx);
+        if (disabledAnswers.has(idx)) btn.classList.add('disabled');
+      });
+    });
     socket.on('youAreOut', ()=>{
       alert('Du bist ausgeschieden. Zuschaueransicht wird angezeigt.');
       document.getElementById('joinCard').style.display='block';

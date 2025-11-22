@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>1 gegen 100 – Präsentation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="socket-url" content="https://api.1gegedrsaal.ch">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,6 +16,8 @@
         <span class="badge">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></span>
         <span class="badge">Phase: <span id="phaseText">lobby</span></span>
         <span class="badge">Solo: #<span id="soloNum">–</span></span>
+        <span class="badge">Konto: <span id="bank">0</span> (Δ <span id="gain">0</span>)</span>
+        <span class="badge">Joker: <span id="jokerInfo">bereit</span></span>
       </div>
 
       <!-- Themenwahl -->
@@ -31,7 +34,9 @@
         <div id="ansList" class="answers"></div>
         <div class="footer">Mob-Timer</div>
         <div class="timerBar"><div id="mobFill" class="timerFill"></div></div>
-        <div class="footer">Einzelspieler (#<span id="soloDisp">–</span>) – kein Zeitlimit. <span id="soloLocked" class="badge" style="display:none;">Antwort gespeichert</span></div>
+        <div class="footer">Solo-Timer</div>
+        <div class="timerBar"><div id="soloFill" class="timerFill" style="background:linear-gradient(90deg,#6dd5fa,#2979ff);"></div></div>
+        <div class="footer">Einzelspieler (#<span id="soloDisp">–</span>) – <span id="soloTimerText">25s Lock-In</span>. <span id="soloLocked" class="badge" style="display:none;">Antwort gespeichert</span></div>
       </div>
 
       <!-- Grid -->
@@ -42,13 +47,15 @@
   </div>
 
   <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script src="socket-config.js"></script>
   <script>
-    const SOCKET_URL = 'https://onegegen100-u6h7.onrender.com'; // <— HIER deine Backend-URL
-    const socket = io(SOCKET_URL);
+    const socket = createSocket();
 
     let cells = new Map(); let known = new Set();
     let revealInProgress = false; let revealingSet = new Set();
     let lastAnswers = [];       // aktuelle Antworten A/B/C
+    let mobTimerHandle = null; let soloTimerHandle = null;
+    let soloTimerEnds = null;
 
     function setPhase(p){ document.getElementById('phaseText').innerText=p; }
     function show(id,b=true){ document.getElementById(id).style.display=b?'block':'none'; }
@@ -56,6 +63,7 @@
     function ensureCells(players) {
       const grid = document.getElementById('grid');
       const nums = players.map(p => p.number).sort((a,b)=>a-b);
+      const incoming = new Set(nums);
       nums.forEach(n => {
         if (!known.has(n)) {
           const d = document.createElement('div');
@@ -64,6 +72,15 @@
           grid.appendChild(d);
           cells.set(n, d);
           known.add(n);
+        }
+      });
+      // Spieler, die nicht mehr existieren, entfernen
+      [...known].forEach(n => {
+        if (!incoming.has(n)) {
+          const el = cells.get(n);
+          if (el?.parentNode) el.parentNode.removeChild(el);
+          cells.delete(n);
+          known.delete(n);
         }
       });
       if (!revealInProgress) {
@@ -122,6 +139,8 @@
       const ans = document.getElementById('ansList'); ans.innerHTML='';
       lastAnswers = q.answers.slice();
       document.getElementById('soloLocked').style.display='none';
+      document.getElementById('soloFill').style.width='0%';
+      document.getElementById('soloTimerText').innerText = 'Lock-In läuft…';
 
       q.answers.forEach((a,i)=>{
         const b=document.createElement('button');
@@ -136,11 +155,42 @@
 
     // Mob-Timer Balken
     socket.on('mobTimerStart', ({seconds})=>{
-      const fill=document.getElementById('mobFill'); const start=Date.now(), dur=seconds*1000;
-      const h=setInterval(()=>{
-        const p=Math.min(1,(Date.now()-start)/dur); fill.style.width=(p*100)+'%';
-        if(p>=1) clearInterval(h);
+      const fill=document.getElementById('mobFill');
+      const start=Date.now(), dur=Math.max(0, seconds)*1000;
+      if (mobTimerHandle) clearInterval(mobTimerHandle);
+      fill.style.width='0%';
+      mobTimerHandle=setInterval(()=>{
+        const p=Math.min(1,(Date.now()-start)/dur || 1);
+        fill.style.width=(p*100)+'%';
+        if(p>=1) { clearInterval(mobTimerHandle); mobTimerHandle=null; }
       }, 50);
+    });
+    socket.on('questionLocked', ()=>{
+      if (mobTimerHandle) clearInterval(mobTimerHandle);
+      mobTimerHandle=null;
+      document.getElementById('mobFill').style.width='100%';
+    });
+
+    socket.on('soloTimerStart', ({seconds})=>{
+      const fill=document.getElementById('soloFill');
+      const start=Date.now(), dur=Math.max(0, seconds)*1000;
+      soloTimerEnds = start + dur;
+      if (soloTimerHandle) clearInterval(soloTimerHandle);
+      fill.style.width='0%';
+      document.getElementById('soloTimerText').innerText = `${seconds}s Lock-In`;
+      soloTimerHandle=setInterval(()=>{
+        const p=Math.min(1,(Date.now()-start)/dur || 1);
+        fill.style.width=(p*100)+'%';
+        const remain = Math.max(0, Math.ceil((soloTimerEnds - Date.now())/1000));
+        document.getElementById('soloTimerText').innerText = `${remain}s Lock-In`;
+        if(p>=1) { clearInterval(soloTimerHandle); soloTimerHandle=null; }
+      }, 50);
+    });
+    socket.on('soloTimerEnd', ()=>{
+      if (soloTimerHandle) clearInterval(soloTimerHandle);
+      soloTimerHandle=null;
+      document.getElementById('soloFill').style.width='100%';
+      document.getElementById('soloTimerText').innerText = 'Lock-In beendet';
     });
 
     // Solo eingeloggt: Button markieren
@@ -151,6 +201,11 @@
         buttons[index].classList.add('soloLocked');
         document.getElementById('soloLocked').style.display='inline-flex';
       }
+    });
+
+    socket.on('eliminatedAnswers', ({ indices })=>{
+      const buttons = [...document.getElementById('ansList').querySelectorAll('.choice')];
+      indices.forEach(i => { if (buttons[i]) buttons[i].classList.add('disabled'); });
     });
 
     // Show (ohne richtige Antwort zu verraten)
@@ -175,11 +230,22 @@
     });
 
     // Allgemein
-    socket.on('stats', ({alive,total,gamePhase,soloNumber})=>{
+    socket.on('stats', ({alive,total,gamePhase,soloNumber,prizePool,lastGain,jokers})=>{
       document.getElementById('aliveCount').innerText=alive;
       document.getElementById('totalCount').innerText=total;
       setPhase(gamePhase); document.getElementById('soloNum').innerText = soloNumber ?? '–';
       document.getElementById('soloDisp').innerText = soloNumber ?? '–';
+      if (prizePool!=null) {
+        document.getElementById('bank').innerText = prizePool;
+        document.getElementById('gain').innerText = lastGain;
+      }
+      if (jokers) {
+        const info = [];
+        if (jokers.doubleActive) info.push('Doppel aktiv');
+        if (jokers.doubleUsed && !jokers.doubleActive) info.push('Doppel verbraucht');
+        if (jokers.buyUsed) info.push('Antwort kaufen genutzt');
+        document.getElementById('jokerInfo').innerText = info.join(' · ') || 'bereit';
+      }
     });
     socket.on('updatePlayers', (players)=>{ ensureCells(players); });
     socket.on('phaseChanged', ({gamePhase})=>{
