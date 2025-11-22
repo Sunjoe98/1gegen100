@@ -129,27 +129,34 @@ npm -v
 
 Damit kannst du das Spiel von null an in einer frisch erzeugten Ubuntu-24.04-VM auf VirtualBox aufsetzen und entweder ausschließlich dort oder auch vom Host aus nutzen.
 
-## Online-Bereitstellung auf Ubuntu-vServer mit Plesk und Domain
+## Online-Bereitstellung auf Ubuntu-vServer mit eigener Domain (ohne Plesk)
 
-Die folgenden Schritte richten das Backend als dauerhaften Node-Dienst ein und liefern das Frontend über deine Domain (Plesk) aus. Beispiel-Hosts: `api.example.com` für das Backend, `spiel.example.com` für das Frontend.
+Die folgenden Schritte richten Backend und Frontend auf deinem vServer ein, binden eine Domain an und schützen die Verbindungen per TLS. Beispiel-Hosts: `api.example.com` für das Backend, `spiel.example.com` für das Frontend.
 
-### 1) Server vorbereiten
+### A) DNS vorbereiten
+1. Lege bei deinem DNS-Anbieter folgende Records an (IPv4/IPv6 nach Bedarf):
+   - **A-Record** `api.example.com` → öffentliche IP deines vServers.
+   - **A-Record** `spiel.example.com` → dieselbe IP (wenn Frontend und Backend auf demselben Server liegen).
+   - Falls du IPv6 hast: **AAAA-Records** analog auf die vServer-IPv6.
+2. Warte, bis die Records weltweit aufgelöst werden (per `dig api.example.com` prüfbar). Zertbot/Let’s Encrypt braucht funktionierendes DNS, bevor Zertifikate ausgestellt werden können.
+
+### B) Server vorbereiten
 1. Per SSH auf dem vServer anmelden.
 2. System aktualisieren und Tools installieren:
    ```bash
    sudo apt update
    sudo apt upgrade -y
-   sudo apt install -y curl git
+   sudo apt install -y curl git ufw nginx
    ```
 
-### 2) Node.js 20 LTS installieren
+### C) Node.js 20 LTS installieren
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 node -v   # sollte 20.x ausgeben
 ```
 
-### 3) Projekt ablegen
+### D) Projekt ablegen
 ```bash
 sudo mkdir -p /srv/1gegen100
 sudo chown $USER:$USER /srv/1gegen100
@@ -157,7 +164,7 @@ cd /srv/1gegen100
 git clone <dein-git-url> .   # oder Dateien per SFTP hochladen
 ```
 
-### 4) Backend installieren und testen
+### E) Backend installieren und testen
 ```bash
 cd /srv/1gegen100/backend
 npm install --production
@@ -165,7 +172,7 @@ PORT=3000 npm start   # Testlauf im Terminal, mit Ctrl+C stoppen
 ```
 Nach dem Testlauf den Prozess beenden; der Port 3000 bleibt Standard.
 
-### 5) Backend als systemd-Dienst
+### F) Backend als systemd-Dienst
 Erstelle `/etc/systemd/system/einsgegenhundert.service`:
 ```ini
 [Unit]
@@ -191,52 +198,96 @@ sudo systemctl enable --now einsgegenhundert.service
 systemctl status einsgegenhundert.service
 ```
 
-### 6) Firewall (falls aktiv)
+### G) Firewall (falls aktiv)
 ```bash
-sudo ufw allow 3000/tcp
+sudo ufw allow 80/tcp   # HTTP für Zertbot-Validierung
+sudo ufw allow 443/tcp  # HTTPS für Nutzer
+sudo ufw allow 3000/tcp # interner Node-Port, nur falls nötig (kann nach Nginx-Proxy wieder geschlossen werden)
 ```
 
-### 7) Backend hinter Plesk/Nginx erreichbar machen
-1. Lege in Plesk eine Subdomain für das Backend an, z. B. `api.example.com`.
-2. Aktiviere kostenloses TLS-Zertifikat (Let’s Encrypt) für die Subdomain.
-3. Richte einen Reverse Proxy auf Port 3000 ein. In Plesk → **Websites & Domains → Apache & nginx-Einstellungen → Zusätzliche nginx-Anweisungen** ergänzen:
+### H) Nginx für Backend (Reverse Proxy + WebSockets)
+1. Erstelle `/etc/nginx/sites-available/1gegen100-backend`:
    ```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-   ```
-4. Überprüfen mit `curl -I https://api.example.com/` oder im Browser (sollte „Backend läuft…“ melden).
+   server {
+       listen 80;
+       server_name api.example.com;
 
-### 8) Frontend auf der Domain bereitstellen
-1. Lege eine zweite Subdomain an, z. B. `spiel.example.com`, und aktiviere TLS.
-2. In Plesk → **Dateien** den Ordner der Subdomain öffnen und den Inhalt aus `/srv/1gegen100/frontend/` hochladen (z. B. via „Hochladen“ oder `scp`).
-3. Damit die Seiten das Backend finden, ergänze in jede HTML-Datei (oder global per Layout) vor `socket-config.js` einen Endpunkt-Hinweis, z. B. in `index.html`:
-   ```html
-   <script>window.__SOCKET_URL__ = 'https://api.example.com';</script>
-   <script src="socket-config.js"></script>
+       location / {
+           proxy_pass http://127.0.0.1:3000;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+       }
+   }
    ```
-   Alternativ kannst du im `<head>` einen Meta-Tag setzen:
-   ```html
-   <meta name="socket-url" content="https://api.example.com">
+2. Aktivieren und testen:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/1gegen100-backend /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
    ```
-   `socket-config.js` nimmt diese Vorgabe automatisch und verbindet alle Clients mit der richtigen Domain über WebSockets.
 
-### 9) Testen
-* Öffne `https://spiel.example.com/admin.html` für das Admin-Panel, `index.html` für Spieler, `display.html`/`presentation.html` für die Wand.
-* Prüfe im Browser-Netzwerk-Tab, dass die WebSocket-Verbindung zu `wss://api.example.com/socket.io/...` aufgebaut wird.
-* Starte eine Testrunde, registriere Spieler und kontrolliere, dass Phase/Timer/Eliminierungen synchron angezeigt werden.
+### I) TLS aktivieren (Let’s Encrypt via certbot)
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d api.example.com -d spiel.example.com
+```
+Certbot ergänzt automatisch HTTPS-Serverblöcke und erneuert Zertifikate per Timer. Prüfe mit `curl -I https://api.example.com/`.
 
-### 10) Updates einspielen
+### J) Frontend ausliefern (statisch via Nginx)
+1. Statisches Verzeichnis anlegen und Dateien kopieren:
+   ```bash
+   sudo mkdir -p /var/www/1gegen100
+   sudo cp -r /srv/1gegen100/frontend/* /var/www/1gegen100/
+   ```
+2. Serverblock `/etc/nginx/sites-available/1gegen100-frontend`:
+   ```nginx
+   server {
+       listen 80;
+       server_name spiel.example.com;
+
+       root /var/www/1gegen100;
+       index index.html;
+
+       location / {
+           try_files $uri $uri/ =404;
+       }
+   }
+   ```
+3. Aktivieren und reload:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/1gegen100-frontend /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+   ```
+4. TLS für das Frontend ist durch den Certbot-Aufruf oben bereits eingerichtet, falls du `spiel.example.com` mit angegeben hast. Alternativ kannst du `sudo certbot --nginx -d spiel.example.com` separat ausführen.
+
+### K) Frontend mit Backend verbinden
+Füge in jede HTML-Datei (oder einmalig per `meta`-Tag) vor `socket-config.js` den Socket-Endpunkt ein, damit alle Clients deine Domain nutzen:
+```html
+<script>window.__SOCKET_URL__ = 'https://api.example.com';</script>
+<script src="socket-config.js"></script>
+```
+Alternativ im `<head>`:
+```html
+<meta name="socket-url" content="https://api.example.com">
+```
+`socket-config.js` erkennt die Vorgabe automatisch. Ohne diesen Hinweis würden die Seiten den aktuellen Origin verwenden.
+
+### L) Testen
+* Öffne `https://spiel.example.com/admin.html` (Admin), `index.html` (Spieler), `display.html` / `presentation.html` (Leinwand).
+* Kontrolliere im Browser-Netzwerk-Tab, dass `wss://api.example.com/socket.io/...` aufgebaut wird.
+* Starte eine Testrunde, registriere Spieler und prüfe Phasen, Timer und Eliminierungen.
+
+### M) Updates einspielen
 ```bash
 cd /srv/1gegen100
 git pull
 cd backend
 npm install --production   # falls neue Abhängigkeiten
 sudo systemctl restart einsgegenhundert.service
+sudo systemctl reload nginx
 ```
 Falls sich Frontend-Dateien geändert haben, erneut auf die Frontend-Subdomain hochladen.
