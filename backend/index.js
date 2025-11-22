@@ -14,10 +14,16 @@ const io = socketIo(server, { cors: { origin: "*", methods: ["GET","POST"] } });
 
 const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
 const ASKED_FILE     = path.join(__dirname, 'asked.json');
+const FRONTEND_DIR   = path.join(__dirname, '..', 'frontend');
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname))); // /questions.json, /asked.json
+// Serve backend assets (questions/asked) and the static frontend so URLs like
+// /presentation.html work directly against the backend origin.
+app.use(express.static(path.join(__dirname)));
+if (fs.existsSync(FRONTEND_DIR)) {
+  app.use(express.static(FRONTEND_DIR));
+}
 
 const TOPICS = [
   "Musik","Film & TV","Sport","Geschichte","Geografie",
