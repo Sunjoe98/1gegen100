@@ -109,3 +109,115 @@ npm -v
   Damit sind die Seiten in der VM unter `http://localhost:5000` verfügbar; bei Bridged oder Port-Forwarding auch vom Host. Dank Socket-Fallback verbinden sie sich trotzdem mit `localhost:3000` (bzw. der weitergeleiteten Hostadresse), sofern du keinen eigenen `window.__SOCKET_URL__` setzt.
 
 Damit kannst du das Spiel von null an in einer frisch erzeugten Ubuntu-24.04-VM auf VirtualBox aufsetzen und entweder ausschließlich dort oder auch vom Host aus nutzen.
+
+## Online-Bereitstellung auf Ubuntu-vServer mit Plesk und Domain
+
+Die folgenden Schritte richten das Backend als dauerhaften Node-Dienst ein und liefern das Frontend über deine Domain (Plesk) aus. Beispiel-Hosts: `api.example.com` für das Backend, `spiel.example.com` für das Frontend.
+
+### 1) Server vorbereiten
+1. Per SSH auf dem vServer anmelden.
+2. System aktualisieren und Tools installieren:
+   ```bash
+   sudo apt update
+   sudo apt upgrade -y
+   sudo apt install -y curl git
+   ```
+
+### 2) Node.js 20 LTS installieren
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v   # sollte 20.x ausgeben
+```
+
+### 3) Projekt ablegen
+```bash
+sudo mkdir -p /srv/1gegen100
+sudo chown $USER:$USER /srv/1gegen100
+cd /srv/1gegen100
+git clone <dein-git-url> .   # oder Dateien per SFTP hochladen
+```
+
+### 4) Backend installieren und testen
+```bash
+cd /srv/1gegen100/backend
+npm install --production
+PORT=3000 npm start   # Testlauf im Terminal, mit Ctrl+C stoppen
+```
+Nach dem Testlauf den Prozess beenden; der Port 3000 bleibt Standard.
+
+### 5) Backend als systemd-Dienst
+Erstelle `/etc/systemd/system/einsgegenhundert.service`:
+```ini
+[Unit]
+Description=1 gegen 100 Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/1gegen100/backend
+Environment="PORT=3000"
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+User=deinbenutzer
+Group=deinbenutzer
+
+[Install]
+WantedBy=multi-user.target
+```
+Aktivieren und starten:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now einsgegenhundert.service
+systemctl status einsgegenhundert.service
+```
+
+### 6) Firewall (falls aktiv)
+```bash
+sudo ufw allow 3000/tcp
+```
+
+### 7) Backend hinter Plesk/Nginx erreichbar machen
+1. Lege in Plesk eine Subdomain für das Backend an, z. B. `api.example.com`.
+2. Aktiviere kostenloses TLS-Zertifikat (Let’s Encrypt) für die Subdomain.
+3. Richte einen Reverse Proxy auf Port 3000 ein. In Plesk → **Websites & Domains → Apache & nginx-Einstellungen → Zusätzliche nginx-Anweisungen** ergänzen:
+   ```nginx
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+   ```
+4. Überprüfen mit `curl -I https://api.example.com/` oder im Browser (sollte „Backend läuft…“ melden).
+
+### 8) Frontend auf der Domain bereitstellen
+1. Lege eine zweite Subdomain an, z. B. `spiel.example.com`, und aktiviere TLS.
+2. In Plesk → **Dateien** den Ordner der Subdomain öffnen und den Inhalt aus `/srv/1gegen100/frontend/` hochladen (z. B. via „Hochladen“ oder `scp`).
+3. Damit die Seiten das Backend finden, ergänze in jede HTML-Datei (oder global per Layout) vor `socket-config.js` einen Endpunkt-Hinweis, z. B. in `index.html`:
+   ```html
+   <script>window.__SOCKET_URL__ = 'https://api.example.com';</script>
+   <script src="socket-config.js"></script>
+   ```
+   Alternativ kannst du im `<head>` einen Meta-Tag setzen:
+   ```html
+   <meta name="socket-url" content="https://api.example.com">
+   ```
+   `socket-config.js` nimmt diese Vorgabe automatisch und verbindet alle Clients mit der richtigen Domain über WebSockets.
+
+### 9) Testen
+* Öffne `https://spiel.example.com/admin.html` für das Admin-Panel, `index.html` für Spieler, `display.html`/`presentation.html` für die Wand.
+* Prüfe im Browser-Netzwerk-Tab, dass die WebSocket-Verbindung zu `wss://api.example.com/socket.io/...` aufgebaut wird.
+* Starte eine Testrunde, registriere Spieler und kontrolliere, dass Phase/Timer/Eliminierungen synchron angezeigt werden.
+
+### 10) Updates einspielen
+```bash
+cd /srv/1gegen100
+git pull
+cd backend
+npm install --production   # falls neue Abhängigkeiten
+sudo systemctl restart einsgegenhundert.service
+```
+Falls sich Frontend-Dateien geändert haben, erneut auf die Frontend-Subdomain hochladen.

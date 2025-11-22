@@ -40,6 +40,7 @@ let offeredTopics = [];        // aktuell angebotene 2 Themen
 let chosenTopic = null;        // vom Solo gewähltes Thema
 let mobAnsweringOpen = false;  // 10s Fenster für Mob
 let mobTimerHandle = null;     // Timeout-Handle für Mob-Fenster
+let mobTimerEndsAt = null;     // Zeitstempel, bis wann das Mob-Fenster offen ist
 let soloAnswer = null;         // vom Admin gespeicherte Solo-Antwort
 
 // ---- Helpers
@@ -104,6 +105,7 @@ function resetMobTimer() {
     clearTimeout(mobTimerHandle);
     mobTimerHandle = null;
   }
+  mobTimerEndsAt = null;
 }
 
 function resetRoundState() {
@@ -139,6 +141,18 @@ function syncSocket(socket) {
   const payload = currentQuestionPayload();
   if (payload) {
     socket.emit('displayQuestion', payload);
+    if (mobAnsweringOpen) {
+      const remainingMs = mobTimerEndsAt ? mobTimerEndsAt - Date.now() : 0;
+      const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+      if (remainingSec > 0) {
+        socket.emit('mobTimerStart', { seconds: remainingSec });
+      } else {
+        mobAnsweringOpen = false;
+        socket.emit('questionLocked');
+      }
+    } else {
+      socket.emit('questionLocked');
+    }
     if (soloAnswer) {
       const index = currentQuestion.answers.findIndex(a => a === soloAnswer);
       if (index >= 0) socket.emit('soloAnswerSet', { index, answer: soloAnswer });
@@ -176,6 +190,11 @@ io.on('connection', (socket) => {
     socket.emit('youAre', { number: player.number });
     if (currentQuestion) {
       socket.emit('newQuestion', currentQuestionPayload());
+      if (mobAnsweringOpen) {
+        const remainingMs = mobTimerEndsAt ? mobTimerEndsAt - Date.now() : 0;
+        const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+        if (remainingSec > 0) socket.emit('mobTimerStart', { seconds: remainingSec });
+      }
       if (!mobAnsweringOpen) socket.emit('questionLocked');
     }
 
@@ -246,10 +265,12 @@ io.on('connection', (socket) => {
 
     // Mob-10s Fenster öffnen
     mobAnsweringOpen = true;
+    mobTimerEndsAt = Date.now() + 10000;
     io.emit('mobTimerStart', { seconds: 10 });
     mobTimerHandle = setTimeout(() => {
       mobAnsweringOpen = false;
       mobTimerHandle = null;
+      mobTimerEndsAt = null;
       io.emit('mobTimerEnd');
       io.emit('questionLocked');
     }, 10000);

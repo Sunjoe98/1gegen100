@@ -49,6 +49,7 @@
     let cells = new Map(); let known = new Set();
     let revealInProgress = false; let revealingSet = new Set();
     let lastAnswers = [];       // aktuelle Antworten A/B/C
+    let mobTimerHandle = null;
 
     function setPhase(p){ document.getElementById('phaseText').innerText=p; }
     function show(id,b=true){ document.getElementById(id).style.display=b?'block':'none'; }
@@ -56,6 +57,7 @@
     function ensureCells(players) {
       const grid = document.getElementById('grid');
       const nums = players.map(p => p.number).sort((a,b)=>a-b);
+      const incoming = new Set(nums);
       nums.forEach(n => {
         if (!known.has(n)) {
           const d = document.createElement('div');
@@ -64,6 +66,15 @@
           grid.appendChild(d);
           cells.set(n, d);
           known.add(n);
+        }
+      });
+      // Spieler, die nicht mehr existieren, entfernen
+      [...known].forEach(n => {
+        if (!incoming.has(n)) {
+          const el = cells.get(n);
+          if (el?.parentNode) el.parentNode.removeChild(el);
+          cells.delete(n);
+          known.delete(n);
         }
       });
       if (!revealInProgress) {
@@ -136,11 +147,20 @@
 
     // Mob-Timer Balken
     socket.on('mobTimerStart', ({seconds})=>{
-      const fill=document.getElementById('mobFill'); const start=Date.now(), dur=seconds*1000;
-      const h=setInterval(()=>{
-        const p=Math.min(1,(Date.now()-start)/dur); fill.style.width=(p*100)+'%';
-        if(p>=1) clearInterval(h);
+      const fill=document.getElementById('mobFill');
+      const start=Date.now(), dur=Math.max(0, seconds)*1000;
+      if (mobTimerHandle) clearInterval(mobTimerHandle);
+      fill.style.width='0%';
+      mobTimerHandle=setInterval(()=>{
+        const p=Math.min(1,(Date.now()-start)/dur || 1);
+        fill.style.width=(p*100)+'%';
+        if(p>=1) { clearInterval(mobTimerHandle); mobTimerHandle=null; }
       }, 50);
+    });
+    socket.on('questionLocked', ()=>{
+      if (mobTimerHandle) clearInterval(mobTimerHandle);
+      mobTimerHandle=null;
+      document.getElementById('mobFill').style.width='100%';
     });
 
     // Solo eingeloggt: Button markieren
