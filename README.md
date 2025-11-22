@@ -22,6 +22,25 @@ So kannst du das Spiel komplett auf einem einzelnen Rechner laufen lassen, ohne 
 
 Mit diesen Schritten brauchst du keine eigene URL: Backend und Frontend laufen komplett lokal, und die bestehenden Defaults des Projekts kümmern sich um die Verbindung.
 
+## Spielablauf (nah am TV-Original)
+
+Das Backend bildet den bekannten „1 gegen 100“-Ablauf für Mobilgeräte nach. Die wichtigsten Eckpunkte:
+
+- **Rollen**: Ein Solo-Kandidat (vom Admin gesetzt) spielt gegen den Mob. Nur lebende Mob-Spieler antworten; der Solo hat separate Bedienelemente im Admin-Panel.
+- **Themenwahl**: Der Solo wählt aus zwei zufälligen Themen, anschließend startet der Admin die nächste Frage.
+- **Fragen**: Drei Antwortmöglichkeiten, die Mob-Spieler sehen einen **20 s Timer**. Der Solo muss in **25 s locken**; ohne Lock-In gilt die Frage als falsch.
+- **Joker** (einmal pro Spiel):
+  - **Antwort kaufen**: Entfernt serverseitig eine falsche Option und halbiert sofort das Konto.
+  - **Doppel-Joker**: Für die aktuelle Frage wird jede eliminierte Mob-Person doppelt gezählt. Ist der Solo falsch, wird das Konto halbiert.
+- **Konto**: Jede falsch liegende Mob-Person bringt 100 Punkte/CHF. Der Doppel-Joker verdoppelt den Gewinn. Die Bank und der letzte Zuwachs werden live an alle Clients gesendet.
+- **Elimination**: Liegt der Solo falsch oder läuft seine Zeit ab, scheidet er aus – der Mob bleibt bestehen. Liegt er richtig, scheiden alle Mob-Spieler mit falscher oder fehlender Antwort aus.
+
+### Hinweise für den Admin
+
+- **Ohne Solo-Lock-In keine Auflösung**: `Auflösen & Show` ist blockiert, solange der Solo noch Zeit hat und keine Antwort abgegeben wurde.
+- **Joker-Schaltflächen**: Im Admin-Panel können die beiden Joker ausgelöst werden. Der Doppel-Joker gilt nur für die aktuelle Frage; „Antwort kaufen“ streicht serverseitig eine falsche Option und deaktiviert die entsprechende Schaltfläche bei allen Clients.
+- **Timer-Sync**: Präsentation und Spieleransicht zeigen Mob- und Solo-Timer synchronisiert an. Bei Reconnects werden die Restzeiten nachgeladen.
+
 ## Komplett lokale Installation in Oracle VirtualBox (Ubuntu 24.04)
 
 Die folgende Schritt-für-Schritt-Anleitung führt dich von einer leeren VirtualBox-Installation bis zum laufenden Spiel innerhalb einer Ubuntu-24.04-VM.

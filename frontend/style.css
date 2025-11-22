@@ -69,3 +69,8 @@ a{color:var(--accent)}
 .choice.soloLocked { outline:2px solid var(--accent); box-shadow:0 0 14px rgba(227,6,19,.35) }
 .choice.correct { background:#123d26; border-color:#1f6a3a; }
 .choice.wrong   { background:#5a1316; border-color:#7a1419; }
+.choice.disabled{ opacity:.45; text-decoration:line-through; border-style:dashed; pointer-events:none; }
+
+.pill{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px; background:#101013; border:1px solid #1f1f24; color:#d2d2d7; font-size:13px }
+.pill.ok{ border-color:#1f6a3a; color:#dff8ea; }
+.pill.warn{ border-color:#7a1419; color:#ffdede; }

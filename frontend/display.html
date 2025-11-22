@@ -11,6 +11,7 @@
     <h1>1 gegen 100</h1>
     <div class="card">
       <div class="footer">Im Spiel: <span id="aliveCount">0</span>/<span id="totalCount">0</span></div>
+      <div class="footer">Konto: <span id="bank">0</span> (Δ <span id="gain">0</span>)</div>
       <h2 id="questionText">Warten auf nächste Frage…</h2>
     </div>
   </div>
@@ -20,12 +21,18 @@
   <script>
     const socket = createSocket();
 
-    socket.on('stats', ({alive,total}) => {
+    socket.on('stats', ({alive,total,prizePool,lastGain}) => {
       document.getElementById('aliveCount').innerText = alive;
       document.getElementById('totalCount').innerText = total;
+      if (prizePool!=null) document.getElementById('bank').innerText = prizePool;
+      if (lastGain!=null) document.getElementById('gain').innerText = lastGain;
     });
     socket.on('displayQuestion', q => {
       document.getElementById('questionText').innerText = `(${q.topic}) ${q.text}`;
+    });
+    socket.on('bankUpdate', ({prizePool,lastGain})=>{
+      if (prizePool!=null) document.getElementById('bank').innerText = prizePool;
+      if (lastGain!=null) document.getElementById('gain').innerText = lastGain;
     });
   </script>
 </body>
